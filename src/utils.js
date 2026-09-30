@@ -1,0 +1,115 @@
+export const TICKET_PREFIX = "evix";
+export const MAX_COMPONENT_OPTIONS = 25;
+export const MAX_BUTTONS_PER_ROW = 5;
+export const MAX_FORM_FIELDS = 5;
+
+export function normalizeText(value, fallback = "") {
+  return String(value ?? fallback).trim();
+}
+
+export function truncate(value, max) {
+  const text = String(value ?? "");
+  return text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1))}…`;
+}
+
+export function sanitizeChannelName(value) {
+  return String(value ?? "ticket")
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 90) || "ticket";
+}
+
+export function renderTemplate(template, data) {
+  return String(template ?? "ticket-{number}")
+    .replaceAll("{number}", String(data.number ?? ""))
+    .replaceAll("{user}", String(data.user ?? "user"))
+    .replaceAll("{type}", String(data.type ?? "ticket"))
+    .replaceAll("{username}", String(data.username ?? "user"))
+    .trim();
+}
+
+export function parseRoleMentions(input) {
+  return [...String(input ?? "").matchAll(/<@&(\d+)>/g)].map((m) => m[1]);
+}
+
+export function parseUserId(input) {
+  const value = String(input ?? "").trim();
+  const mention = value.match(/^<@!?(\d+)>$/);
+  if (mention) return mention[1];
+  if (/^\d{5,30}$/.test(value)) return value;
+  throw new Error("Enter a valid user ID or user mention.");
+}
+
+export function unique(values) {
+  return [...new Set((values ?? []).filter(Boolean).map(String))];
+}
+
+export function isStaff(member, staffRoleIds) {
+  if (!member || !Array.isArray(staffRoleIds) || staffRoleIds.length === 0) return false;
+  return staffRoleIds.some((roleId) => member.roles.cache.has(roleId));
+}
+
+export function hasAnyRole(member, roleIds) {
+  return isStaff(member, roleIds);
+}
+
+export function buildTicketKey(number) {
+  return `EV-${String(number).padStart(4, "0")}`;
+}
+
+export function formatDuration(start, end = Date.now()) {
+  const delta = Math.max(0, new Date(end).getTime() - new Date(start).getTime());
+  const seconds = Math.floor(delta / 1000);
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  if (days) return `${days}d ${hours}h ${minutes}m`;
+  if (hours) return `${hours}h ${minutes}m ${secs}s`;
+  if (minutes) return `${minutes}m ${secs}s`;
+  return `${secs}s`;
+}
+
+export function assertPanelOptions(options) {
+  if (!Array.isArray(options) || options.length === 0) {
+    throw new Error("A panel must contain at least one option.");
+  }
+  if (options.length > MAX_COMPONENT_OPTIONS) {
+    throw new Error(`A panel cannot contain more than ${MAX_COMPONENT_OPTIONS} options.`);
+  }
+  const ids = new Set();
+  for (const option of options) {
+    if (!option.id) throw new Error("Every panel option needs an id.");
+    if (ids.has(String(option.id))) throw new Error(`Duplicate option id: ${option.id}`);
+    ids.add(String(option.id));
+    if (![ "CREATE_TICKET", "NOTHING" ].includes(option.action)) {
+      throw new Error(`Unsupported action for option ${option.id}: ${option.action}`);
+    }
+    if (option.action === "CREATE_TICKET" && !option.categoryId && !option.category_id) {
+      throw new Error(`CREATE_TICKET option ${option.id} requires a category.`);
+    }
+  }
+}
+
+export function validateModalFields(fields) {
+  if (!Array.isArray(fields)) throw new Error("Modal fields must be an array.");
+  if (fields.length > MAX_FORM_FIELDS) {
+    throw new Error(`A ticket form can contain at most ${MAX_FORM_FIELDS} fields.`);
+  }
+  const normalized = fields.filter(Boolean).map((field, index) => ({
+    id: String(field.id || `field_${index + 1}`).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 45),
+    label: truncate(field.label || `Field ${index + 1}`, 45),
+    placeholder: truncate(field.placeholder || "", 100),
+    required: field.required !== false,
+    style: field.style === "paragraph" ? "paragraph" : "short",
+  }));
+  const ids = new Set();
+  for (const field of normalized) {
+    if (!field.id || !field.label) throw new Error("Every form field needs an id and label.");
+    if (ids.has(field.id)) throw new Error(`Duplicate form field id: ${field.id}`);
+    ids.add(field.id);
+  }
+  return normalized;
+}
