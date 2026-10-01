@@ -20,7 +20,11 @@ function channelCandidates(ticket, route) {
     return [ticket.transcript_log_channel_id, ticket.transcript_channel_id];
   }
   if (route === "moderation") {
-    return [ticket.moderation_log_channel_id, ticket.ticket_log_channel_id, ticket.log_channel_id];
+    const candidates = [ticket.moderation_log_channel_id];
+    if (ticket.ticket_logs_enabled !== false) {
+      candidates.push(ticket.ticket_log_channel_id, ticket.log_channel_id);
+    }
+    return candidates;
   }
   return [ticket.ticket_log_channel_id, ticket.log_channel_id];
 }
