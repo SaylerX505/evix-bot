@@ -310,7 +310,13 @@ export class TicketService {
   async resume(interaction, ticket) {
     this.assertStaff(interaction.member, ticket);
     if (ticket.status !== "waiting") {
-      if (statusIsActive(ticket.status)) return respond(interaction, buildActionResult("Ticket Already Open", "This ticket is already active."));
+      if (statusIsActive(ticket.status)) {
+        if (interaction.isButton?.()) {
+          await this.refreshControlMessage(interaction, ticket);
+          return ticket;
+        }
+        return respond(interaction, buildActionResult("Ticket Already Open", "This ticket is already active."));
+      }
       throw new Error("Only waiting tickets can be resumed.");
     }
     transitionTicket(ticket.status, "waiting");
