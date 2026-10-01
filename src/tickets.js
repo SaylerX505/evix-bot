@@ -564,8 +564,10 @@ export class TicketService {
     const destination = await interaction.guild.channels.fetch(destinationId).catch(() => null);
     if (!destination?.isTextBased?.()) { if (!silent) await interaction.followUp(buildActionResult("Transcript Unavailable", "The configured transcript channel is unavailable.", 0xed4245)).catch(() => null); return null; }
     const message = await destination.send({ content: "Transcript — " + ticket.ticket_key + " · " + transcript.messageCount + " messages", files: [transcriptAttachment(transcript.buffer, transcript.fileName)], allowedMentions: { parse: [] } });
-    await addTicketEvent(ticket.id, "TRANSCRIPT_CREATED", null, { messages: transcript.messageCount, channel: destination.id }).catch(() => null);
-    await writeTicketLog(interaction.guild, ticket, "TRANSCRIPT_CREATED", null, { messages: transcript.messageCount, channel: destination.id });
+    void addTicketEvent(ticket.id, "TRANSCRIPT_CREATED", null, { messages: transcript.messageCount, channel: destination.id })
+      .catch((error) => console.error("[evix-transcript-event-error]", error));
+    void writeTicketLog(interaction.guild, ticket, "TRANSCRIPT_CREATED", null, { messages: transcript.messageCount, channel: destination.id })
+      .catch((error) => console.error("[evix-transcript-log-error]", error));
     return message.url;
   }
 
