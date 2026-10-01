@@ -48,6 +48,21 @@ test("ticket audit logs only expose Open, Claimed, Closed, Deleted, and Transcri
   assert.equal(rendered.some((value) => value.includes("# Transcript")), true);
 });
 
+test("transcript audit falls back to the ticket log channel", async () => {
+  const guild = makeGuild();
+  const transcriptOnlyTicket = {
+    ...ticket,
+    transcript_log_channel_id: null,
+    transcript_channel_id: null,
+  };
+
+  assert.equal(
+    await writeTicketLog(guild, transcriptOnlyTicket, "TRANSCRIPT_CREATED", "user", { messages: 12 }),
+    true,
+  );
+  assert.equal(guild.sent.length, 1);
+});
+
 test("non-lifecycle ticket events are not written to audit logs", async () => {
   const guild = makeGuild();
 

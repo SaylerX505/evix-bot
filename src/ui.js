@@ -12,7 +12,7 @@ import {
   StringSelectMenuBuilder,
   TextDisplayBuilder,
 } from "discord.js";
-import { MAX_COMPONENT_OPTIONS, parseEmoji, truncate } from "./utils.js";
+import { MAX_COMPONENT_OPTIONS, parseEmoji, truncate, unique } from "./utils.js";
 
 const DEFAULT_ACCENT = 0x5865f2;
 
@@ -133,7 +133,7 @@ export function buildTicketView(ticket, option = {}) {
   return v2Message([container], {
     allowedMentions: {
       parse: [],
-      users: [String(ticket.owner_id), ...(ticket.claimed_by ? [String(ticket.claimed_by)] : [])],
+      users: unique([ticket.owner_id, ...(ticket.claimed_by ? [ticket.claimed_by] : [])]),
     },
   });
 }
@@ -171,7 +171,7 @@ export function buildClosedTicketView(ticket) {
     new ButtonBuilder().setCustomId("evix:t:" + ticket.id + ":delete").setLabel("Delete Ticket").setStyle(ButtonStyle.Danger),
   ));
   return v2Message([container], {
-    allowedMentions: { parse: [], users: ticket.closed_by ? [String(ticket.closed_by)] : [] },
+    allowedMentions: { parse: [], users: unique(ticket.closed_by ? [ticket.closed_by] : []) },
   });
 }
 
@@ -188,7 +188,7 @@ export function buildInfoView(ticket, members = []) {
   ];
   const container = containerWithText("Ticket Information", lines);
   return v2Message([container], {
-    allowedMentions: { parse: [], users: [String(ticket.owner_id), ...(ticket.claimed_by ? [String(ticket.claimed_by)] : []), ...members.map(String)] },
+    allowedMentions: { parse: [], users: unique([ticket.owner_id, ticket.claimed_by, ...members]) },
   });
 }
 
@@ -206,6 +206,20 @@ export function buildErrorResult(error) {
 
 export function buildActionResult(title, description, accent = DEFAULT_ACCENT) {
   return v2Message([containerWithText(title, [description], accent)]);
+}
+
+export function buildClaimResult(ticket) {
+  const container = containerWithText(
+    "Claimed Successfully",
+    ["This ticket is now claimed by <@" + String(ticket.claimed_by || "unknown") + ">."],
+  );
+  container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+  container.addActionRowComponents(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId("evix:t:" + ticket.id + ":unclaim").setLabel("Unclaim Ticket").setStyle(ButtonStyle.Secondary),
+  ));
+  return v2Message([container], {
+    allowedMentions: { parse: [], users: unique(ticket.claimed_by ? [ticket.claimed_by] : []) },
+  });
 }
 
 export function buildDeleteConfirmation(ticket) {
@@ -229,7 +243,13 @@ export function buildSetupSummary(settings) {
     "**Closed tickets category:** " + (settings?.closed_category_id ? "<#" + settings.closed_category_id + ">" : "Not configured"),
     "**Ticket logs:** " + (settings?.ticket_logs_enabled === false || !(settings?.ticket_log_channel_id || settings?.log_channel_id) ? "off" : "<#" + (settings.ticket_log_channel_id || settings.log_channel_id) + ">"),
     "**Moderation logs:** " + (settings?.moderation_logs_enabled === false ? "off" : (settings?.moderation_log_channel_id ? "<#" + settings.moderation_log_channel_id + ">" : ((settings?.ticket_logs_enabled !== false && (settings?.ticket_log_channel_id || settings?.log_channel_id)) ? "fallback → <#" + (settings.ticket_log_channel_id || settings.log_channel_id) + ">" : "off"))),
-    "**Transcript logs:** " + (settings?.transcript_logs_enabled === false || !(settings?.transcript_log_channel_id || settings?.transcript_channel_id) ? "off" : "<#" + (settings.transcript_log_channel_id || settings.transcript_channel_id) + ">"),
+    "**Transcript logs:** " + (settings?.transcript_logs_enabled === false
+      ? "off"
+      : (settings?.transcript_log_channel_id || settings?.transcript_channel_id)
+        ? "<#" + (settings.transcript_log_channel_id || settings.transcript_channel_id) + ">"
+        : (settings?.ticket_logs_enabled !== false && (settings?.ticket_log_channel_id || settings?.log_channel_id))
+          ? "fallback → <#" + (settings.ticket_log_channel_id || settings.log_channel_id) + ">"
+          : "off"),
     "**Ticket limit:** " + (settings?.default_ticket_limit ?? 1),
   ];
   const container = containerWithText("Evix Ticket Configuration", lines);
