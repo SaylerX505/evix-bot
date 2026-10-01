@@ -34,8 +34,11 @@ export async function handleInteraction(interaction, { service, ui }) {
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === "ticket") {
         const sub = interaction.options.getSubcommand();
-        if (["info", "claim", "unclaim", "waiting", "reopen", "add", "remove", "rename"].includes(sub)) await interaction.deferReply();
-        else if (sub === "transcript") await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        if (["setup", "config", "logs", "close", "delete", "transcript"].includes(sub)) {
+          await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        } else if (["info", "claim", "unclaim", "waiting", "reopen", "add", "remove", "rename"].includes(sub)) {
+          await interaction.deferReply();
+        }
         await handleTicketCommand(interaction, service, ui);
       } else if (interaction.commandName === "panel") {
         const sub = interaction.options.getSubcommand();
