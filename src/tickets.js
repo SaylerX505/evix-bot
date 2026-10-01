@@ -275,19 +275,31 @@ export class TicketService {
     }
     await interaction.channel.setName(statusName(nextStatus, next.ticket_key)).catch(() => null);
     const eventType = nextStatus === "waiting" ? "TICKET_WAITING" : "TICKET_RESUMED";
-    await respond(interaction, buildActionResult(
-      nextStatus === "waiting" ? "Ticket Waiting" : "Ticket Resumed",
-      routingWarning
-        ? (nextStatus === "waiting" ? "The ticket was moved to waiting. " : "The ticket was resumed. ") + routingWarning
-        : (nextStatus === "waiting" ? "The ticket is now waiting for staff handling." : "The ticket is active again."),
-    ));
+    const actionMessage = routingWarning
+      ? (nextStatus === "waiting" ? "The ticket was moved to waiting. " : "The ticket was resumed. ") + routingWarning
+      : (nextStatus === "waiting" ? "The ticket is now waiting for staff handling." : "The ticket is active again.");
+
+    // Button interactions that change ticket state update the public control message
+    // directly. Slash commands still receive their normal interaction response.
+    if (interaction.isButton?.()) {
+      await this.refreshControlMessage(interaction, next);
+    } else {
+      await respond(
+        interaction,
+        buildActionResult(
+          nextStatus === "waiting" ? "Ticket Waiting" : "Ticket Resumed",
+          actionMessage,
+        ),
+      );
+      void this.refreshControlMessage(interaction, next)
+        .catch((error) => console.error("[evix-ticket-refresh-after-waiting-error]", error));
+    }
 
     void addTicketEvent(ticket.id, eventType, interaction.user.id, {
       status: nextStatus,
       category: currentCategoryId,
       warning: routingWarning || "none",
     }).catch((error) => console.error("[evix-ticket-event-after-waiting-error]", error));
-    void this.refreshControlMessage(interaction, next).catch((error) => console.error("[evix-ticket-refresh-after-waiting-error]", error));
     void writeTicketLog(interaction.guild, next, eventType, interaction.user.id, {
       status: nextStatus,
       category: currentCategoryId,
