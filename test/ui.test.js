@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { MessageFlags } from "discord.js";
-import { buildAdminEmbed, buildCloseConfirmation, buildClosedTicketView, buildErrorResult, buildInfoView, buildPanelMessage, buildTicketView } from "../src/ui.js";
+import { buildAdminEmbed, buildClaimResult, buildCloseConfirmation, buildClosedTicketView, buildErrorResult, buildInfoView, buildPanelMessage, buildTicketView } from "../src/ui.js";
 
 function option(id, extra = {}) {
   return { id, panel_id: 1, label: "Option " + id, description: extra.description ?? null, emoji: extra.emoji ?? null, action: extra.action ?? "CREATE_TICKET" };
