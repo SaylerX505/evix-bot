@@ -32,6 +32,11 @@ export async function handleInteraction(interaction, { service, ui }) {
     }
 
     if (interaction.isChatInputCommand()) {
+      if (interaction.commandName === "panel") {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await handlePanelCommand(interaction, ui);
+        return;
+      }
       if (interaction.commandName === "ticket") {
         const sub = interaction.options.getSubcommand();
         if (["setup", "config", "logs", "close", "delete", "transcript"].includes(sub)) {
@@ -40,10 +45,6 @@ export async function handleInteraction(interaction, { service, ui }) {
           await interaction.deferReply();
         }
         await handleTicketCommand(interaction, service, ui);
-      } else if (interaction.commandName === "panel") {
-        const sub = interaction.options.getSubcommand();
-        if (["list", "send", "reset", "delete", "option-add", "option-edit", "option-remove"].includes(sub)) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        await handlePanelCommand(interaction, ui);
       }
       return;
     }
