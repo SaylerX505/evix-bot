@@ -97,7 +97,7 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
     assert.ok(settingsQuery.text.includes("ticket_logs_enabled"));
     assert.ok(settingsQuery.text.includes("$13"));
     assert.ok(settingsQuery.text.includes("$14"));
-    assert.ok(settingsQuery.text.includes("$15"));
+    assert.ok(settingsQuery.text.includes("$14"));
     assert.deepEqual(settingsQuery.params.slice(-4), [false, true, false, 1]);
   } finally {
     pg.Pool.prototype.query = originalQuery;
