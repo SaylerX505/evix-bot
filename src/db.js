@@ -1,5 +1,5 @@
 import pg from "pg";
-import { unique } from "./utils.js";
+import { MAX_COMPONENT_OPTIONS, unique } from "./utils.js";
 
 const { Pool } = pg;
 let pool;
@@ -415,33 +415,58 @@ export async function resetPanel(panelId) {
 export async function addPanelOption(data) {
   const action = data.action ?? "CREATE_TICKET";
   if (!["CREATE_TICKET", "NOTHING"].includes(action)) throw new Error("Panel option action must be CREATE_TICKET or NOTHING.");
-  const { rows } = await query(
-    "INSERT INTO ticket_panel_options (panel_id,position,component_kind,label,description,emoji,action,category_id,closed_category_id,staff_roles,ping_roles,log_channel_id,moderation_log_channel_id,transcript_channel_id,welcome_message,ticket_name_template,close_behavior,transcript_on_close,allow_multiple,button_style,modal_fields) " +
-    "VALUES ($1,$2,'dropdown',$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20::jsonb) RETURNING *",
-    [
-      data.panelId,
-      data.position,
-      data.label,
-      data.description ?? null,
-      data.emoji ?? null,
-      action,
-      data.categoryId ?? null,
-      data.closedCategoryId ?? null,
-      JSON.stringify(unique(data.staffRoles)),
-      JSON.stringify(unique(data.pingRoles)),
-      data.logChannelId ?? null,
-      data.moderationLogChannelId ?? null,
-      data.transcriptChannelId ?? null,
-      data.welcomeMessage ?? "",
-      data.ticketNameTemplate || "ticket-{number}",
-      data.closeBehavior || "move",
-      data.transcriptOnClose !== false,
-      data.allowMultiple === true,
-      data.buttonStyle ?? 2,
-      JSON.stringify(data.modalFields ?? []),
-    ],
-  );
-  return rows[0];
+
+  return withTransaction(async (client) => {
+    const { rows: panelRows } = await client.query(
+      "SELECT id FROM ticket_panels WHERE id=$1 FOR UPDATE",
+      [data.panelId],
+    );
+    if (!panelRows[0]) throw new Error("Panel not found.");
+
+    const { rows: countRows } = await client.query(
+      "SELECT COUNT(*)::int AS count FROM ticket_panel_options WHERE panel_id=$1",
+      [data.panelId],
+    );
+    if (Number(countRows[0]?.count ?? 0) >= MAX_COMPONENT_OPTIONS) {
+      const error = new Error("A panel cannot contain more than " + MAX_COMPONENT_OPTIONS + " ticket options.");
+      error.code = "EVIX_PANEL_OPTION_LIMIT";
+      throw error;
+    }
+
+    const { rows: positionRows } = await client.query(
+      "SELECT COALESCE(MAX(position), -1) + 1 AS next_position FROM ticket_panel_options WHERE panel_id=$1",
+      [data.panelId],
+    );
+    const position = Number(positionRows[0]?.next_position ?? 0);
+
+    const { rows } = await client.query(
+      "INSERT INTO ticket_panel_options (panel_id,position,component_kind,label,description,emoji,action,category_id,closed_category_id,staff_roles,ping_roles,log_channel_id,moderation_log_channel_id,transcript_channel_id,welcome_message,ticket_name_template,close_behavior,transcript_on_close,allow_multiple,button_style,modal_fields) " +
+      "VALUES ($1,$2,'dropdown',$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20::jsonb) RETURNING *",
+      [
+        data.panelId,
+        position,
+        data.label,
+        data.description ?? null,
+        data.emoji ?? null,
+        action,
+        data.categoryId ?? null,
+        data.closedCategoryId ?? null,
+        JSON.stringify(unique(data.staffRoles)),
+        JSON.stringify(unique(data.pingRoles)),
+        data.logChannelId ?? null,
+        data.moderationLogChannelId ?? null,
+        data.transcriptChannelId ?? null,
+        data.welcomeMessage ?? "",
+        data.ticketNameTemplate || "ticket-{number}",
+        data.closeBehavior || "move",
+        data.transcriptOnClose !== false,
+        data.allowMultiple === true,
+        data.buttonStyle ?? 2,
+        JSON.stringify(data.modalFields ?? []),
+      ],
+    );
+    return rows[0];
+  });
 }
 
 export async function listPanelOptions(panelId) {
