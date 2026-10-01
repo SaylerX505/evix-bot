@@ -60,7 +60,6 @@ function ticketControls(ticket) {
     controls.push(new ButtonBuilder().setCustomId("evix:t:" + ticket.id + ":claim").setLabel("Claim").setStyle(ButtonStyle.Secondary));
   }
   if (ticket.status !== "closed") {
-    controls.push(new ButtonBuilder().setCustomId("evix:t:" + ticket.id + ":waiting").setLabel(ticket.status === "waiting" ? "Resume" : "Waiting").setStyle(ButtonStyle.Secondary));
     controls.push(new ButtonBuilder().setCustomId("evix:t:" + ticket.id + ":close").setLabel("Close Ticket").setStyle(ButtonStyle.Danger));
   }
   controls.push(new ButtonBuilder().setCustomId("evix:t:" + ticket.id + ":info").setLabel("Info").setStyle(ButtonStyle.Secondary));
