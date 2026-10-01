@@ -172,11 +172,13 @@ export async function handleInteraction(interaction, { service, ui }) {
       if (!canManage && !((action === "close" || action === "keep-open") && canClose)) throw new Error("You are not authorized to confirm this action.");
       if (action === "keep-open" || action === "cancel") {
         await interaction.deferUpdate();
-        return interaction.editReply(ticket.status === "closed" ? buildClosedTicketView(ticket) : buildTicketView(ticket, { welcome_message: ticket.welcome_message }));
+        await interaction.deleteReply().catch(() => null);
+        return;
       }
       if (action === "close") {
         await interaction.deferUpdate();
         await service.close(interaction, ticket, { reply: false, closedBy: interaction.user.id });
+        await interaction.deleteReply().catch(() => null);
         return;
       }
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
