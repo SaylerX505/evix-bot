@@ -21,8 +21,9 @@ test("channel names are normalized safely", () => {
   assert.equal(sanitizeChannelName("!!!"), "ticket");
 });
 
-test("role mentions are parsed without duplicates", () => {
-  assert.deepEqual(parseRoleMentions("<@&123> <@&123> <@&456>"), ["123", "123", "456"]);
+test("role mentions are parsed uniquely and reject invalid input", () => {
+  assert.deepEqual(parseRoleMentions("<@&123456> <@&123456> <@&987654>"), ["123456", "987654"]);
+  assert.throws(() => parseRoleMentions("<@&123456> helpers"), /valid Discord role mentions/);
 });
 
 test("templates replace supported ticket variables", () => {
@@ -49,7 +50,7 @@ test("user IDs accept mentions or raw IDs", () => {
   assert.throws(() => parseUserId("not-a-user"), /valid user ID/);
 });
 
-test("modal fields are normalized and reject duplicates", () => {
+test("modal fields are strict and reject duplicates", () => {
   assert.deepEqual(validateModalFields([
     { id: "reason", label: "Reason", style: "paragraph" },
     { id: "order", label: "Order ID", required: false },
@@ -58,6 +59,7 @@ test("modal fields are normalized and reject duplicates", () => {
     { id: "order", label: "Order ID", placeholder: "", required: false, style: "short" },
   ]);
 
+  assert.throws(() => validateModalFields([{ label: "Missing id" }]), /requires an id and label/);
   assert.throws(() => validateModalFields([
     { id: "x", label: "A" },
     { id: "x", label: "B" },

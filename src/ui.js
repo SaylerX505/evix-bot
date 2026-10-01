@@ -53,6 +53,7 @@ export function v2Message(components, extra = {}) {
   return {
     ...extra,
     components,
+    allowedMentions: extra.allowedMentions ?? { parse: [] },
     flags: MessageFlags.IsComponentsV2,
   };
 }
@@ -83,7 +84,12 @@ export function buildPanelMessage(panel) {
   const selectOptions = mode === "buttons" ? [] : options.filter((o) => o.component_kind === "dropdown");
 
   if (buttons.length > MAX_PANEL_BUTTONS) {
-    throw new Error(`A panel can contain at most ${MAX_PANEL_BUTTONS} buttons when using Components V2.`);
+    throw new Error(`A panel can contain at most ${MAX_PANEL_BUTTONS} buttons.`);
+  }
+
+  const actionRowCount = Math.ceil(buttons.length / MAX_BUTTONS_PER_ROW) + (selectOptions.length ? 1 : 0);
+  if (actionRowCount > 5) {
+    throw new Error("This panel exceeds Discord's action-row limit. Reduce its buttons/options or use a separate panel.");
   }
 
   if (buttons.length) {
@@ -167,6 +173,25 @@ export function buildTicketView(ticket, option) {
   });
 }
 
+export function buildDeleteConfirmation(ticket) {
+  const container = new ContainerBuilder()
+    .setAccentColor(0xed4245)
+    .addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`# Delete ${ticket.ticket_key}?`),
+      new TextDisplayBuilder().setContent("This will permanently delete the ticket channel. This action cannot be undone."),
+    )
+    .addSeparatorComponents(
+      new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
+    )
+    .addActionRowComponents(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`evix:confirm:${ticket.id}:delete`).setLabel("Confirm Delete").setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId(`evix:confirm:${ticket.id}:cancel`).setLabel("Cancel").setStyle(ButtonStyle.Secondary),
+      ),
+    );
+
+  return v2Message([container]);
+}
 export function buildClosedTicketView(ticket) {
   const container = new ContainerBuilder()
     .setAccentColor(0x747f8d)

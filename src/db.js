@@ -98,6 +98,8 @@ export async function initDatabase(databaseUrl) {
       log_channel_id TEXT,
       transcript_channel_id TEXT,
       transcript_url TEXT,
+      control_message_id TEXT,
+      welcome_message TEXT NOT NULL DEFAULT 'Thanks for opening a ticket. A member of the team will be with you shortly.',
       close_behavior TEXT NOT NULL DEFAULT 'move' CHECK (close_behavior IN ('move','stay')),
       transcript_on_close BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -139,6 +141,8 @@ export async function initDatabase(databaseUrl) {
     ALTER TABLE tickets ADD COLUMN IF NOT EXISTS close_behavior TEXT NOT NULL DEFAULT 'move';
     ALTER TABLE tickets ADD COLUMN IF NOT EXISTS transcript_on_close BOOLEAN NOT NULL DEFAULT TRUE;
     ALTER TABLE tickets ADD COLUMN IF NOT EXISTS dedupe_key TEXT;
+    ALTER TABLE tickets ADD COLUMN IF NOT EXISTS control_message_id TEXT;
+    ALTER TABLE tickets ADD COLUMN IF NOT EXISTS welcome_message TEXT NOT NULL DEFAULT 'Thanks for opening a ticket. A member of the team will be with you shortly.';
     DROP INDEX IF EXISTS tickets_one_active_per_type;
     CREATE UNIQUE INDEX IF NOT EXISTS tickets_one_active_dedupe_idx
       ON tickets (guild_id, owner_id, option_id, dedupe_key)
@@ -157,6 +161,21 @@ export async function closeDatabase() {
 
 async function query(text, params = []) {
   return getPool().query(text, params);
+}
+
+async function withTransaction(callback) {
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const result = await callback(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => null);
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function getGuildSettings(guildId) {
@@ -232,7 +251,7 @@ export async function updatePanel(panelId, patch) {
   const keys = Object.keys(patch).filter((key) => allowed.includes(key));
   if (!keys.length) throw new Error("No editable panel fields were provided.");
   const values = keys.map((key) => patch[key]);
-  const assignments = keys.map((key, i) => `${key} = $\{i + 2}`).join(", ");
+  const assignments = keys.map((key, i) => key + " = $" + (i + 2)).join(", ");
   const { rows } = await query(
     `UPDATE ticket_panels SET ${assignments}, updated_at=NOW() WHERE id=$1 RETURNING *`,
     [panelId, ...values],
@@ -245,15 +264,18 @@ export async function deletePanel(panelId) {
 }
 
 export async function resetPanel(panelId) {
-  await query("DELETE FROM ticket_panel_options WHERE panel_id=$1", [panelId]);
-  const { rows } = await query(
-    `UPDATE ticket_panels SET component_mode='dropdown', title='Evix Support',
-      description='Choose an option below to open a ticket.', accent_color=5793266,
-      placeholder='Select a ticket type', footer='Evix Ticket System', message_id=NULL, updated_at=NOW()
-      WHERE id=$1 RETURNING *`,
-    [panelId],
-  );
-  return rows[0] ?? null;
+  return withTransaction(async (client) => {
+    await client.query("DELETE FROM ticket_panel_options WHERE panel_id=$1", [panelId]);
+    const { rows } = await client.query(
+      `UPDATE ticket_panels SET component_mode='dropdown', title='Evix Support',
+        description='Choose an option below to open a ticket.', accent_color=5793266,
+        placeholder='Select a ticket type', footer='Evix Ticket System',
+        message_id=NULL, channel_id=NULL, updated_at=NOW()
+        WHERE id=$1 RETURNING *`,
+      [panelId],
+    );
+    return rows[0] ?? null;
+  });
 }
 
 export async function addPanelOption(data) {
@@ -284,7 +306,18 @@ export async function listPanelOptions(panelId) {
   return rows;
 }
 
-export async function getPanelOption(optionId) {
+export async function getPanelOption(optionId, guildId = null) {
+  if (guildId) {
+    const { rows } = await query(
+      `SELECT o.*
+       FROM ticket_panel_options o
+       JOIN ticket_panels p ON p.id = o.panel_id
+       WHERE o.id=$1 AND p.guild_id=$2`,
+      [optionId, guildId],
+    );
+    return rows[0] ?? null;
+  }
+
   const { rows } = await query("SELECT * FROM ticket_panel_options WHERE id=$1", [optionId]);
   return rows[0] ?? null;
 }
@@ -300,9 +333,7 @@ export async function updatePanelOption(optionId, patch) {
   const values = keys.map((key) => ["staff_roles","ping_roles","modal_fields"].includes(key)
     ? JSON.stringify(key === "modal_fields" ? patch[key] : unique(patch[key]))
     : patch[key]);
-  const assignments = keys.map((key, i) =>
-    `${key} = $\{i + 2}${["staff_roles","ping_roles","modal_fields"].includes(key) ? "::jsonb" : ""}`
-  ).join(", ");
+  const assignments = keys.map((key, i) => key + " = $" + (i + 2) + (["staff_roles","ping_roles","modal_fields"].includes(key) ? "::jsonb" : "")).join(", ");
   const { rows } = await query(
     `UPDATE ticket_panel_options SET ${assignments}, updated_at=NOW() WHERE id=$1 RETURNING *`,
     [optionId, ...values],
@@ -332,35 +363,79 @@ export async function getOpenTicketForUser(guildId, ownerId, optionId) {
 }
 
 export async function createTicket(data) {
-  const { rows } = await query(
-    `WITH next_id AS (SELECT nextval('tickets_id_seq') AS id)
-     INSERT INTO tickets
-      (id,guild_id,panel_id,option_id,ticket_key,channel_id,owner_id,type_label,status,category_id,closed_category_id,
-       staff_roles,ping_roles,dedupe_key,log_channel_id,transcript_channel_id,close_behavior,transcript_on_close)
-     SELECT id,$1,$2,$3,'EV-' || LPAD(id::text,4,'0'),$4,$5,$6,'open',$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15
-     FROM next_id
-     RETURNING *`,
-    [
-      data.guildId, data.panelId, data.optionId, data.channelId, data.ownerId, data.typeLabel,
-      data.categoryId, data.closedCategoryId, JSON.stringify(unique(data.staffRoles)),
-      JSON.stringify(unique(data.pingRoles)), data.dedupeKey ?? null, data.logChannelId, data.transcriptChannelId,
-      data.closeBehavior || "move", data.transcriptOnClose !== false,
-    ],
-  );
-  return rows[0];
+  return withTransaction(async (client) => {
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext($1))",
+      [`ticket-limit:${data.guildId}:${data.ownerId}`],
+    );
+
+    if (Number.isInteger(data.ticketLimit) && data.ticketLimit > 0) {
+      const { rows: countRows } = await client.query(
+        "SELECT COUNT(*)::int AS count FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND status IN ('open','locked')",
+        [data.guildId, data.ownerId],
+      );
+      if (countRows[0].count >= data.ticketLimit) {
+        const error = new Error(`You have reached the open ticket limit (${data.ticketLimit}).`);
+        error.code = "EVIX_TICKET_LIMIT";
+        throw error;
+      }
+    }
+
+    const { rows } = await client.query(
+      `WITH next_id AS (SELECT nextval('tickets_id_seq') AS id)
+       INSERT INTO tickets
+        (id,guild_id,panel_id,option_id,ticket_key,channel_id,owner_id,type_label,status,category_id,closed_category_id,
+         staff_roles,ping_roles,dedupe_key,log_channel_id,transcript_channel_id,control_message_id,welcome_message,
+         close_behavior,transcript_on_close)
+       SELECT id,$1,$2,$3,'EV-' || LPAD(id::text,4,'0'),$4,$5,$6,'open',$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15,$16,$17
+       FROM next_id
+       RETURNING *`,
+      [
+        data.guildId, data.panelId, data.optionId, data.channelId, data.ownerId, data.typeLabel,
+        data.categoryId, data.closedCategoryId, JSON.stringify(unique(data.staffRoles)),
+        JSON.stringify(unique(data.pingRoles)), data.dedupeKey ?? null, data.logChannelId,
+        data.transcriptChannelId, data.controlMessageId ?? null,
+        data.welcomeMessage || "Thanks for opening a ticket. A member of the team will be with you shortly.",
+        data.closeBehavior || "move", data.transcriptOnClose !== false,
+      ],
+    );
+    return rows[0];
+  });
 }
 
-export async function updateTicket(ticketId, patch) {
+export async function updateTicket(ticketId, patch, conditions = {}) {
   const allowed = [
-    "status","claimed_by","transcript_url","closed_at","reopened_at","deleted_at","channel_id","ticket_key"
+    "status","claimed_by","transcript_url","closed_at","reopened_at","deleted_at",
+    "channel_id","ticket_key","control_message_id","welcome_message"
   ];
   const keys = Object.keys(patch).filter((key) => allowed.includes(key));
   if (!keys.length) throw new Error("No editable ticket fields were provided.");
+
   const values = keys.map((key) => patch[key]);
-  const assignments = keys.map((key, i) => `${key}=$\{i + 2}`).join(", ");
+  const assignments = keys.map((key, i) => key + "=$" + (i + 2)).join(", ");
+  const where = ["id=$1"];
+
+  if (conditions.statuses?.length) {
+    values.push(conditions.statuses);
+    where.push("status = ANY($" + (values.length + 1) + "::text[])");
+  }
+
+  if (Object.hasOwn(conditions, "claimedBy")) {
+    values.push(conditions.claimedBy);
+    where.push("claimed_by IS NOT DISTINCT FROM $" + (values.length + 1));
+  }
+
   const { rows } = await query(
-    `UPDATE tickets SET ${assignments} WHERE id=$1 RETURNING *`,
+    `UPDATE tickets SET ${assignments} WHERE ${where.join(" AND ")} RETURNING *`,
     [ticketId, ...values],
+  );
+  return rows[0] ?? null;
+}
+
+export async function getTicketById(guildId, ticketId) {
+  const { rows } = await query(
+    "SELECT * FROM tickets WHERE guild_id=$1 AND id=$2",
+    [guildId, ticketId],
   );
   return rows[0] ?? null;
 }

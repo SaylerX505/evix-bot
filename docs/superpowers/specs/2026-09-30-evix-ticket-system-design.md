@@ -36,10 +36,10 @@ Each ticket type can independently define:
 4. Evix creates the ticket channel under the configured category.
 5. Channel permissions grant the ticket owner access, grant configured staff roles access, and deny @everyone access.
 6. Evix sends the configured ticket welcome view and optional role mentions.
-7. Staff can claim/unclaim, add/remove members, rename, lock/unlock, close, reopen, and generate transcripts according to permissions.
+7. Staff can claim/unclaim, add/remove members, rename, lock/unlock, close, reopen, and generate transcripts according to permissions. Manage Channels is accepted as a ticket-management override.
 8. Close changes ticket state and either moves it to the configured closed category or leaves it in place, according to ticket type configuration.
 9. Transcript and audit log events are generated according to configuration.
-10. Delete permanently removes the channel after the configured close flow/confirmation.
+10. Delete requires confirmation, then permanently removes the channel after the configured close flow.
 
 Ticket state is persistent and recoverable after process restart.
 
@@ -53,7 +53,7 @@ Two role concepts remain separate:
 
 Administrative commands use Discord permission checks plus the bot's ability to manage the target category/channel.
 
-The bot must validate required Discord permissions before attempting channel creation or permission mutation and return an actionable error instead of leaving a partially-created ticket.
+The bot validates required Discord permissions before ticket creation or permission mutation where possible, compensates failed resource creation, and uses conditional persistence to prevent duplicate/racing state mutations.
 
 ## Panels and Components V2
 
@@ -71,6 +71,7 @@ UI uses Discord Components V2 with a clean Evix visual system derived from the V
 - SeparatorBuilder
 - SectionBuilder where useful
 - ActionRowBuilder for interactive components
+- LabelBuilder for modal fields
 - no dashboard
 - no banner image required
 - restrained dark/premium presentation
@@ -131,7 +132,7 @@ Indexes must support:
 - events by ticket
 - panels by guild
 
-Unique/partial constraints must prevent duplicate active ticket records for configurations where only one active ticket of a type is allowed.
+Unique/partial constraints prevent duplicate active ticket records for configurations where only one active ticket of a type is allowed, while the per-member global ticket limit is enforced transactionally.
 
 ## Reliability and error handling
 
@@ -163,6 +164,7 @@ Required verification layers:
 - unit tests for pure configuration validation, naming, permissions, state transitions, and event normalization
 - interaction/component tests for routing and one-response acknowledgement
 - database tests for additive schema behavior and persistence semantics
+- UI tests for Components V2 layout limits and modal structure
 - syntax/runtime verification
 - full project test suite
 - final hard-debug pass focused on Discord edge cases and race conditions
