@@ -47,7 +47,7 @@ async function installRollbackTrigger(pool) {
     LANGUAGE plpgsql
     AS $$
     BEGIN
-      IF NEW.label = 'rollback-me' THEN
+      IF NEW.label = 'Open Ticket' THEN
         RAISE EXCEPTION 'intentional PostgreSQL chaos rollback';
       END IF;
       RETURN NEW;
