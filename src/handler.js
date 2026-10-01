@@ -165,7 +165,9 @@ export async function handleInteraction(interaction, { service, ui }) {
       if (!match) throw new Error("Invalid confirmation action.");
       const [, ticketId, action] = match;
       const ticket = await service.getTicket(interaction, ticketId);
-      if (!service.canManageTicket(interaction.member, ticket) && !(action === "close" && service.canClose(interaction.member, ticket))) throw new Error("You are not authorized to confirm this action.");
+      const canManage = service.canManageTicket(interaction.member, ticket);
+      const canClose = service.canClose(interaction.member, ticket);
+      if (!canManage && !((action === "close" || action === "keep-open") && canClose)) throw new Error("You are not authorized to confirm this action.");
       if (action === "keep-open" || action === "cancel") {
         await interaction.deferUpdate();
         return interaction.editReply(ticket.status === "closed" ? buildClosedTicketView(ticket) : buildTicketView(ticket, { welcome_message: ticket.welcome_message }));
