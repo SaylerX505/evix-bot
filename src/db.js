@@ -466,7 +466,7 @@ export async function updatePanelOption(optionId, patch) {
   const values = keys.map((key) => jsonKeys.has(key)
     ? JSON.stringify(key === "modal_fields" ? patch[key] : unique(patch[key]))
     : patch[key]);
-  const assignments = keys.map((key, index) => key + "=$" + (index + 2) + (jsonKeys.has(key) ? "::jsonb" : "")).join(", ");
+  const assignments = keys.map((key, index) => key + " = $" + (index + 2) + (jsonKeys.has(key) ? "::jsonb" : "")).join(", ");
   const { rows } = await query(
     "UPDATE ticket_panel_options SET " + assignments + ",updated_at=NOW() WHERE id=$1 RETURNING *",
     [optionId, ...values],
