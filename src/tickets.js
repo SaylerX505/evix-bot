@@ -129,8 +129,6 @@ export class TicketService {
 
     const finalName = sanitizeChannelName(renderTemplate(option.ticket_name_template, { number: ticket.ticket_key, user: interaction.user.id, username: interaction.user.username, type: option.label }));
     await channel.setName(finalName).catch(() => null);
-    await addTicketEvent(ticket.id, "TICKET_CREATED", interaction.user.id, { type: option.label, channel: channel.id, category: actualCategoryId, backup: usedBackup, form: formValues });
-    if (usedBackup) await addTicketEvent(ticket.id, "TICKET_CATEGORY_FALLBACK", interaction.user.id, { primary_category: primaryCategory, category: actualCategoryId });
 
     const welcome = [pingRoles.length ? pingRoles.map((id) => "<@&" + id + ">").join(" ") : "", storedWelcome].filter(Boolean).join("\n");
     const view = buildTicketView(ticket, { ...option, welcome_message: welcome });
@@ -146,7 +144,23 @@ export class TicketService {
       throw new Error("Ticket channel was created but the welcome message failed: " + (error?.message || "unknown error"));
     }
     await respond(interaction, buildActionResult("Ticket Created", "Your ticket `" + ticket.ticket_key + "` has been created: " + channel));
-    await writeTicketLog(interaction.guild, ticket, "TICKET_CREATED", interaction.user.id, { category: actualCategoryId, backup: usedBackup ? "yes" : "no" });
+    void addTicketEvent(ticket.id, "TICKET_CREATED", interaction.user.id, {
+      type: option.label,
+      channel: channel.id,
+      category: actualCategoryId,
+      backup: usedBackup,
+      form: formValues,
+    }).catch((error) => console.error("[evix-ticket-create-event-error]", error));
+    if (usedBackup) {
+      void addTicketEvent(ticket.id, "TICKET_CATEGORY_FALLBACK", interaction.user.id, {
+        primary_category: primaryCategory,
+        category: actualCategoryId,
+      }).catch((error) => console.error("[evix-ticket-category-fallback-event-error]", error));
+    }
+    void writeTicketLog(interaction.guild, ticket, "TICKET_CREATED", interaction.user.id, {
+      category: actualCategoryId,
+      backup: usedBackup ? "yes" : "no",
+    }).catch((error) => console.error("[evix-ticket-create-log-error]", error));
     return ticket;
   }
 
@@ -194,10 +208,13 @@ export class TicketService {
     if (ticket.claimed_by) throw new Error("This ticket is already claimed by <@" + ticket.claimed_by + ">.");
     const next = await updateTicket(ticket.id, { claimed_by: interaction.user.id, claimed_at: new Date() }, { statuses: ["open"], claimedBy: null });
     if (!next) throw new Error("This ticket was changed by another staff member. Please try again.");
-    await addTicketEvent(ticket.id, "TICKET_CLAIMED", interaction.user.id);
-    await this.refreshControlMessage(interaction, next);
     await respond(interaction, buildActionResult("Ticket Claimed", "This ticket has been claimed by <@" + interaction.user.id + ">."));
-    await writeTicketLog(interaction.guild, next, "TICKET_CLAIMED", interaction.user.id);
+    void addTicketEvent(ticket.id, "TICKET_CLAIMED", interaction.user.id)
+      .catch((error) => console.error("[evix-ticket-claim-event-error]", error));
+    void this.refreshControlMessage(interaction, next)
+      .catch((error) => console.error("[evix-ticket-refresh-after-claim-error]", error));
+    void writeTicketLog(interaction.guild, next, "TICKET_CLAIMED", interaction.user.id)
+      .catch((error) => console.error("[evix-ticket-claim-log-error]", error));
     return next;
   }
 
@@ -206,10 +223,13 @@ export class TicketService {
     if (!ticket.claimed_by) return respond(interaction, buildActionResult("Ticket Unclaimed", "This ticket is not currently claimed."));
     const next = await updateTicket(ticket.id, { claimed_by: null, claimed_at: null }, { statuses: ["open", "waiting"], claimedBy: ticket.claimed_by });
     if (!next) throw new Error("This ticket was changed by another staff member. Please try again.");
-    await addTicketEvent(ticket.id, "TICKET_UNCLAIMED", interaction.user.id, { previous_claim: ticket.claimed_by });
-    await this.refreshControlMessage(interaction, next);
     await respond(interaction, buildActionResult("Ticket Unclaimed", "The ticket is available for another staff member to claim."));
-    await writeTicketLog(interaction.guild, next, "TICKET_UNCLAIMED", interaction.user.id);
+    void addTicketEvent(ticket.id, "TICKET_UNCLAIMED", interaction.user.id, { previous_claim: ticket.claimed_by })
+      .catch((error) => console.error("[evix-ticket-unclaim-event-error]", error));
+    void this.refreshControlMessage(interaction, next)
+      .catch((error) => console.error("[evix-ticket-refresh-after-unclaim-error]", error));
+    void writeTicketLog(interaction.guild, next, "TICKET_UNCLAIMED", interaction.user.id)
+      .catch((error) => console.error("[evix-ticket-unclaim-log-error]", error));
     return next;
   }
 
@@ -357,7 +377,7 @@ export class TicketService {
       await writeTicketLog(interaction.guild, finalTicket, "TICKET_CLOSED", interaction.user.id, {
         transcript: transcriptUrl || "not created",
         category: currentCategoryId,
-      });
+      }).catch((error) => console.error("[evix-close-log-error]", error));
       return finalTicket;
     };
 
@@ -444,9 +464,11 @@ export class TicketService {
     if (!safe) throw new Error("The ticket name cannot be empty.");
     const finalName = statusName(ticket.status, safe);
     await interaction.channel.setName(finalName);
-    await addTicketEvent(ticket.id, "TICKET_RENAMED", interaction.user.id, { name: safe });
     await respond(interaction, buildActionResult("Ticket Renamed", "The ticket channel is now `" + finalName + "`."));
-    await writeTicketLog(interaction.guild, ticket, "TICKET_RENAMED", interaction.user.id, { name: safe });
+    void addTicketEvent(ticket.id, "TICKET_RENAMED", interaction.user.id, { name: safe })
+      .catch((error) => console.error("[evix-ticket-rename-event-error]", error));
+    void writeTicketLog(interaction.guild, ticket, "TICKET_RENAMED", interaction.user.id, { name: safe })
+      .catch((error) => console.error("[evix-ticket-rename-log-error]", error));
   }
 
   async addMember(interaction, ticket, userId) {
@@ -460,9 +482,11 @@ export class TicketService {
     await interaction.channel.permissionOverwrites.edit(userId, { ViewChannel: true, SendMessages: ticket.status !== "closed", ReadMessageHistory: true, AttachFiles: true, EmbedLinks: true });
     try { await addTicketMember(ticket.id, userId, interaction.user.id); }
     catch (error) { await interaction.channel.permissionOverwrites.delete(userId).catch(() => null); throw error; }
-    await addTicketEvent(ticket.id, "MEMBER_ADDED", interaction.user.id, { user: userId });
     await respond(interaction, buildActionResult("User Added", "<@" + interaction.user.id + "> added <@" + userId + "> successfully."));
-    await writeTicketLog(interaction.guild, ticket, "MEMBER_ADDED", interaction.user.id, { user: userId });
+    void addTicketEvent(ticket.id, "MEMBER_ADDED", interaction.user.id, { user: userId })
+      .catch((error) => console.error("[evix-ticket-member-add-event-error]", error));
+    void writeTicketLog(interaction.guild, ticket, "MEMBER_ADDED", interaction.user.id, { user: userId })
+      .catch((error) => console.error("[evix-ticket-member-add-log-error]", error));
   }
 
   async addRole(interaction, ticket, roleId) {
@@ -471,9 +495,11 @@ export class TicketService {
     if (!role) throw new Error("Role was not found in this server.");
     if (role.id === interaction.guild.id) throw new Error("The @everyone role cannot be added to a ticket.");
     await interaction.channel.permissionOverwrites.edit(role.id, { ViewChannel: true, SendMessages: ticket.status !== "closed", ReadMessageHistory: true, AttachFiles: true, EmbedLinks: true });
-    await addTicketEvent(ticket.id, "ROLE_ADDED", interaction.user.id, { role: role.id });
     await respond(interaction, buildActionResult("Role Added", "<@" + interaction.user.id + "> added <@&" + role.id + "> successfully."));
-    await writeTicketLog(interaction.guild, ticket, "ROLE_ADDED", interaction.user.id, { role: role.id });
+    void addTicketEvent(ticket.id, "ROLE_ADDED", interaction.user.id, { role: role.id })
+      .catch((error) => console.error("[evix-ticket-role-add-event-error]", error));
+    void writeTicketLog(interaction.guild, ticket, "ROLE_ADDED", interaction.user.id, { role: role.id })
+      .catch((error) => console.error("[evix-ticket-role-add-log-error]", error));
   }
 
   async removeMember(interaction, ticket, userId) {
@@ -493,9 +519,11 @@ export class TicketService {
       }).catch(() => null);
       throw error;
     }
-    await addTicketEvent(ticket.id, "MEMBER_REMOVED", interaction.user.id, { user: userId });
     await respond(interaction, buildActionResult("User Removed", "<@" + interaction.user.id + "> removed <@" + userId + "> successfully."));
-    await writeTicketLog(interaction.guild, ticket, "MEMBER_REMOVED", interaction.user.id, { user: userId });
+    void addTicketEvent(ticket.id, "MEMBER_REMOVED", interaction.user.id, { user: userId })
+      .catch((error) => console.error("[evix-ticket-member-remove-event-error]", error));
+    void writeTicketLog(interaction.guild, ticket, "MEMBER_REMOVED", interaction.user.id, { user: userId })
+      .catch((error) => console.error("[evix-ticket-member-remove-log-error]", error));
   }
 
   async info(interaction, ticket) {
@@ -518,9 +546,14 @@ export class TicketService {
     const deleted = await updateTicket(ticket.id, { status: "deleted", deleted_at: new Date() }, { statuses: ["closed"] });
     if (!deleted) throw new Error("This ticket was changed by another action. Please try again.");
     try { await interaction.channel.delete("Evix ticket deleted"); }
-    catch (error) { await updateTicket(ticket.id, { status: "closed", deleted_at: null }, { statuses: ["deleted"] }).catch(() => null); throw new Error("Ticket deletion failed: " + (error?.message || "channel deletion failed")); }
-    await addTicketEvent(ticket.id, "TICKET_DELETED", interaction.user.id);
-    await writeTicketLog(interaction.guild, deleted, "TICKET_DELETED", interaction.user.id);
+    catch (error) {
+      await updateTicket(ticket.id, { status: "closed", deleted_at: null }, { statuses: ["deleted"] }).catch(() => null);
+      throw new Error("Ticket deletion failed: " + (error?.message || "channel deletion failed"));
+    }
+    void addTicketEvent(ticket.id, "TICKET_DELETED", interaction.user.id)
+      .catch((error) => console.error("[evix-ticket-delete-event-error]", error));
+    void writeTicketLog(interaction.guild, deleted, "TICKET_DELETED", interaction.user.id)
+      .catch((error) => console.error("[evix-ticket-delete-log-error]", error));
   }
 
   async createTranscript(interaction, ticket, silent = false) {
@@ -540,7 +573,11 @@ export class TicketService {
     this.assertStaff(interaction.member, ticket);
     const transcript = await buildTranscript(interaction.channel, ticket);
     await respond(interaction, { ...buildActionResult("Transcript Ready", "Transcript generated for `" + ticket.ticket_key + "`."), files: [transcriptAttachment(transcript.buffer, transcript.fileName)], flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral });
-    await addTicketEvent(ticket.id, "TRANSCRIPT_CREATED", interaction.user.id, { messages: transcript.messageCount, channel: interaction.channel.id });
-    await writeTicketLog(interaction.guild, ticket, "TRANSCRIPT_CREATED", interaction.user.id, { messages: transcript.messageCount });
+    void addTicketEvent(ticket.id, "TRANSCRIPT_CREATED", interaction.user.id, {
+      messages: transcript.messageCount,
+      channel: interaction.channel.id,
+    }).catch((error) => console.error("[evix-ticket-transcript-event-error]", error));
+    void writeTicketLog(interaction.guild, ticket, "TRANSCRIPT_CREATED", interaction.user.id, { messages: transcript.messageCount })
+      .catch((error) => console.error("[evix-ticket-transcript-log-error]", error));
   }
 }
