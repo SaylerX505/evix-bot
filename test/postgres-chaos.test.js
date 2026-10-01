@@ -56,12 +56,15 @@ function installChaos({ seed, delayProbability = 0.15, failProbability = 0.02, k
     const promise = new Promise((resolve) => { release = resolve; });
     barrier = {
       target,
+      done: false,
       arrive() {
         waiting++;
-        if (waiting >= target) release();
+        if (waiting >= target) {
+          this.done = true;
+          release();
+        }
         return promise;
       },
-      promise,
     };
   }
 
