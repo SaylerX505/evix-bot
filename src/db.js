@@ -255,6 +255,31 @@ async function withTransaction(callback) {
   }
 }
 
+export async function withTicketActionLock(ticketId, callback) {
+  const client = await getPool().connect();
+  const lockKey = "ticket-action:" + String(ticketId);
+  let acquired = false;
+  try {
+    const { rows } = await client.query(
+      "SELECT pg_try_advisory_lock(hashtext($1)) AS locked",
+      [lockKey],
+    );
+    acquired = rows[0]?.locked === true;
+    if (!acquired) {
+      const error = new Error("Another action is already being processed for this ticket. Please try again in a moment.");
+      error.code = "EVIX_TICKET_BUSY";
+      throw error;
+    }
+    return await callback();
+  } finally {
+    if (acquired) await client.query(
+      "SELECT pg_advisory_unlock(hashtext($1))",
+      [lockKey],
+    ).catch(() => null);
+    client.release();
+  }
+}
+
 export async function getGuildSettings(guildId) {
   const { rows } = await query("SELECT * FROM guild_ticket_settings WHERE guild_id=$1", [guildId]);
   const row = rows[0];
