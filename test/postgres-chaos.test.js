@@ -330,6 +330,9 @@ test("isolated PostgreSQL chaos audit: transactions, concurrency, failure recove
     const killedChannels = Array.from({ length: 12 }, (_, index) => "killed-channel-" + index);
     await Promise.all(killedChannels.map(async (channelId) => {
       const client = await pool.connect();
+      let connectionError = null;
+      const onConnectionError = (error) => { connectionError = error; };
+      client.on("error", onConnectionError);
       try {
         await client.query("BEGIN");
         await client.query(
@@ -340,8 +343,10 @@ test("isolated PostgreSQL chaos audit: transactions, concurrency, failure recove
         const { rows } = await client.query("SELECT pg_backend_pid() AS pid");
         const sleep = client.query("SELECT pg_sleep(10)");
         await poolKiller.query("SELECT pg_terminate_backend($1)", [rows[0].pid]);
-        await assert.rejects(() => sleep);
+        await assert.rejects(() => sleep, (error) => error?.code === "57P01" || /terminated|administrator/i.test(error?.message || ""));
+        assert.ok(connectionError, "terminated PostgreSQL client did not emit its expected connection error");
       } finally {
+        client.removeListener("error", onConnectionError);
         client.release();
       }
     }));
