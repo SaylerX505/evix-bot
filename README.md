@@ -2,7 +2,7 @@
 
 Professional Discord ticketing system for Evix.
 
-Evix 1.0.2 provides a Discord-native ticket workflow with a clean Components V2 UI, configurable panels, buttons, select menus, forms, role-based access, transcripts, and audit logs.
+Evix 1.0.2 provides a Discord-native ticket workflow with a clean Components V2 UI, configurable panels, select menus, forms, role-based access, transcripts, and audit logs.
 
 ## Requirements
 
@@ -91,7 +91,7 @@ Evix uses Discord Components V2 with Containers, Text Displays, Separators, Butt
 
 ## Safety and lifecycle
 
-Delete actions use a confirmation step. Ticket control messages are refreshed after claim, lock, unlock, close, and reopen actions. The global per-member open-ticket limit remains enforced even when a ticket type allows multiple tickets of that type.
+Delete actions use a confirmation step. Ticket control messages are refreshed after claim, waiting/resume, close, and reopen actions. The global per-member open-ticket limit remains enforced even when a ticket type allows multiple tickets of that type.
 
 ## Release
 
