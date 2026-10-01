@@ -59,3 +59,22 @@ test("panel option management requires a name only when creating an option", () 
   assert.equal(add.options.find((option) => option.name === "name").required, true);
   assert.equal(edit.options.find((option) => option.name === "name").required, false);
 });
+
+
+test("panel option add uses native role selectors and removes unused fields", () => {
+  const panel = commands.find((command) => command.name === "panel").toJSON();
+  const add = panel.options.find((option) => option.name === "option-add");
+  const staff = add.options.find((option) => option.name === "staff_roles");
+  const ping = add.options.find((option) => option.name === "ping_roles");
+  assert.equal(staff.type, 8);
+  assert.equal(ping.type, 8);
+  assert.equal(add.options.some((option) => ["form", "name_template", "welcome"].includes(option.name)), false);
+});
+
+test("panel option edit uses role selectors and removes unused fields", () => {
+  const panel = commands.find((command) => command.name === "panel").toJSON();
+  const edit = panel.options.find((option) => option.name === "option-edit");
+  assert.equal(edit.options.find((option) => option.name === "staff_roles").type, 8);
+  assert.equal(edit.options.find((option) => option.name === "ping_roles").type, 8);
+  assert.equal(edit.options.some((option) => ["form", "name_template", "welcome"].includes(option.name)), false);
+});
