@@ -509,8 +509,8 @@ export async function createTicket(data) {
 
     const { rows } = await client.query(
       "WITH next_id AS (SELECT nextval('tickets_id_seq') AS id) " +
-      "INSERT INTO tickets (id,guild_id,panel_id,option_id,ticket_key,channel_id,owner_id,type_label,status,category_id,current_category_id,closed_category_id,staff_roles,ping_roles,dedupe_key,log_channel_id,ticket_log_channel_id,moderation_log_channel_id,transcript_channel_id,transcript_log_channel_id,control_message_id,welcome_message,close_behavior,transcript_on_close) " +
-      "SELECT id,$1,$2,$3,'EVX-' || LPAD(id::text,6,'0'),$4,$5,$6,'open',$7,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$12,$13,$14,$14,$15,$16,$17,$18 FROM next_id RETURNING *",
+      "INSERT INTO tickets (id,guild_id,panel_id,option_id,ticket_key,channel_id,owner_id,type_label,status,category_id,current_category_id,closed_category_id,staff_roles,ping_roles,dedupe_key,log_channel_id,ticket_log_channel_id,moderation_log_channel_id,transcript_channel_id,transcript_log_channel_id,ticket_logs_enabled,moderation_logs_enabled,transcript_logs_enabled,control_message_id,welcome_message,close_behavior,transcript_on_close) " +
+      "SELECT id,$1,$2,$3,'EVX-' || LPAD(id::text,6,'0'),$4,$5,$6,'open',$7,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$12,$13,$14,$14,$15,$16,$17,$18,$19,$20,$21 FROM next_id RETURNING *",
       [
         data.guildId,data.panelId,data.optionId,data.channelId,data.ownerId,data.typeLabel,data.categoryId,data.closedCategoryId,
         JSON.stringify(unique(data.staffRoles)),JSON.stringify(unique(data.pingRoles)),data.dedupeKey ?? null,
