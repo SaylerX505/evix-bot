@@ -892,6 +892,10 @@ export class TicketService {
       messages: transcript.messageCount,
       channel: destination.id,
     }).catch(() => null);
+    await writeTicketLog(interaction.guild, ticket, "TRANSCRIPT_CREATED", null, {
+      messages: transcript.messageCount,
+      channel: destination.id,
+    });
     return message.url;
   }
 
