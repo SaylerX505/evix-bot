@@ -239,6 +239,10 @@ export class TicketService {
     }
     await interaction.channel.setName(statusName(nextStatus, next.ticket_key)).catch(() => null);
     const eventType = nextStatus === "waiting" ? "TICKET_WAITING" : "TICKET_RESUMED";
+    await respond(interaction, buildActionResult(
+      nextStatus === "waiting" ? "Moving to Waiting" : "Resuming Ticket",
+      nextStatus === "waiting" ? "Updating the ticket state and channel." : "Restoring the ticket and applying its access.",
+    ));
     await addTicketEvent(ticket.id, eventType, interaction.user.id, { status: nextStatus, category: currentCategoryId, warning: routingWarning || "none" });
 
     await respond(interaction, buildActionResult(
@@ -366,6 +370,7 @@ export class TicketService {
     }
 
     await interaction.channel.setName(statusName("open", next.ticket_key)).catch(() => null);
+    await respond(interaction, buildActionResult("Reopening Ticket", "Restoring the ticket and refreshing its controls."));
     await addTicketEvent(next.id, "TICKET_REOPENED", interaction.user.id, { category: target.category.id });
 
     await respond(interaction, buildActionResult("Ticket Reopened", "This ticket is open again and ready for handling."));
