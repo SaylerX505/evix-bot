@@ -209,12 +209,11 @@ export async function initDatabase(databaseUrl) {
       WHERE status IN ('open','locked') AND dedupe_key IS NOT NULL;
 
     ALTER TABLE tickets DROP CONSTRAINT IF EXISTS tickets_status_check;
-    ALTER TABLE tickets ADD CONSTRAINT tickets_status_check
-      CHECK (status IN ('open','locked','closed','deleted'));
-
-    UPDATE tickets SET status = 'open', waiting_at = NULL WHERE status = 'waiting';
+    UPDATE tickets SET status = 'open' WHERE status = 'waiting';
     ALTER TABLE guild_ticket_settings DROP COLUMN IF EXISTS waiting_category_id;
     ALTER TABLE tickets DROP COLUMN IF EXISTS waiting_at;
+    ALTER TABLE tickets ADD CONSTRAINT tickets_status_check
+      CHECK (status IN ('open','locked','closed','deleted'));
 
     ALTER TABLE ticket_panels DROP CONSTRAINT IF EXISTS ticket_panels_component_mode_check;
     ALTER TABLE ticket_panels ADD CONSTRAINT ticket_panels_component_mode_check
@@ -286,7 +285,7 @@ export async function getGuildSettings(guildId) {
 
 export async function upsertGuildSettings(guildId, patch) {
   const allowed = new Set([
-    "open_category_id","ticket_category_id","backup_category_id","waiting_category_id","closed_category_id",
+    "open_category_id","ticket_category_id","backup_category_id","closed_category_id",
     "log_channel_id","ticket_log_channel_id","moderation_log_channel_id","transcript_channel_id","transcript_log_channel_id",
     "ticket_logs_enabled","moderation_logs_enabled","transcript_logs_enabled","default_ticket_limit",
   ]);
@@ -612,7 +611,7 @@ export async function createTicket(data) {
 
 export async function updateTicket(ticketId, patch, conditions = {}) {
   const allowed = [
-    "status","claimed_by","claimed_at","closed_by","transcript_url","closed_at","reopened_at","waiting_at","deleted_at",
+    "status","claimed_by","claimed_at","closed_by","transcript_url","closed_at","reopened_at","deleted_at",
     "channel_id","ticket_key","control_message_id","welcome_message","current_category_id"
   ];
   const keys = Object.keys(patch).filter((key) => allowed.includes(key));
