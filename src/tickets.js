@@ -260,7 +260,18 @@ export class TicketService {
     try {
       await this.setParticipantPermissions(interaction, next, { view: false, send: false, rollbackTo: { view: true, send: true } });
     } catch (error) {
-      await updateTicket(ticket.id, { status: ticket.status, closed_at: null, claimed_by: ticket.claimed_by, claimed_at: ticket.claimed_at, waiting_at: ticket.waiting_at }, { statuses: ["closed"] }).catch(() => null);
+      await updateTicket(
+        ticket.id,
+        {
+          status: ticket.status,
+          closed_at: null,
+          closed_by: ticket.closed_by,
+          claimed_by: ticket.claimed_by,
+          claimed_at: ticket.claimed_at,
+          waiting_at: ticket.waiting_at,
+        },
+        { statuses: ["closed"] },
+      ).catch(() => null);
       throw new Error("Ticket close failed: " + (error?.message || "permission update failed"));
     }
 
