@@ -65,7 +65,6 @@ test("ticket controls remove unclaim, rename, add-user, lock and unlock", () => 
   assert.equal(json.includes(":add"), false);
   assert.equal(json.includes(":rename"), false);
   assert.equal(json.includes(":claim"), true);
-  assert.equal(json.includes(":waiting"), true);
   assert.equal(json.includes(":close"), true);
   assert.equal(json.includes(":info"), true);
 });
@@ -95,11 +94,10 @@ test("closed ticket view exposes transcript, reopen, and delete", () => {
 });
 
 test("ticket info is a Components V2 container", () => {
-  const payload = buildInfoView({ id: 42, ticket_key: "EVX-000042", type_label: "Support", owner_id: "123456", claimed_by: "999999", status: "waiting", current_category_id: "777777", created_at: "2026-10-01T00:00:00.000Z" }, ["888888"]);
+  const payload = buildInfoView({ id: 42, ticket_key: "EVX-000042", type_label: "Support", owner_id: "123456", claimed_by: "999999", status: "open", current_category_id: "777777", created_at: "2026-10-01T00:00:00.000Z" }, ["888888"]);
   assert.equal(payload.flags, MessageFlags.IsComponentsV2);
   const json = JSON.stringify(containerJson(payload));
   assert.equal(json.includes("EVX-000042"), true);
-  assert.equal(json.includes("Waiting"), true);
 });
 
 
@@ -114,19 +112,6 @@ test("open ticket controls expose only the valid active-ticket actions", () => {
   assert.match(json, /evix:t:42:close/);
   assert.match(json, /evix:t:42:info/);
   assert.doesNotMatch(json, /evix:t:42:(reopen|transcript|delete)/);
-});
-
-test("waiting ticket exposes Resume and does not expose Claim", () => {
-  const payload = buildTicketView({
-    id: 42, ticket_key: "EVX-000042", type_label: "Support", owner_id: "123456",
-    claimed_by: null, status: "waiting",
-  }, { welcome_message: "Waiting" });
-  const json = JSON.stringify(containerJson(payload));
-  assert.match(json, /evix:t:42:waiting/);
-  assert.match(json, /"Resume"/);
-  assert.doesNotMatch(json, /evix:t:42:claim/);
-  assert.match(json, /evix:t:42:close/);
-  assert.match(json, /evix:t:42:info/);
 });
 
 test("closed ticket replaces active controls with only transcript, reopen and delete", () => {
