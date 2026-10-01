@@ -253,8 +253,6 @@ export async function handlePanelCommand(interaction, ui) {
     const closedCategory = interaction.options.getChannel("closed_category");
     const staffRole = interaction.options.getRole("staff_roles");
     const pingRole = interaction.options.getRole("ping_roles");
-    const clearStaffRoles = interaction.options.getBoolean("clear_staff_roles") === true;
-    const clearPingRoles = interaction.options.getBoolean("clear_ping_roles") === true;
     const closeBehavior = interaction.options.getString("close_behavior");
     const allowMultiple = interaction.options.getBoolean("allow_multiple");
     const transcriptOnClose = interaction.options.getBoolean("transcript_on_close");
@@ -318,6 +316,8 @@ export async function handlePanelCommand(interaction, ui) {
     const closedCategory = interaction.options.getChannel("closed_category");
     const staffRole = interaction.options.getRole("staff_roles");
     const pingRole = interaction.options.getRole("ping_roles");
+    const clearStaffRoles = interaction.options.getBoolean("clear_staff_roles") === true;
+    const clearPingRoles = interaction.options.getBoolean("clear_ping_roles") === true;
     const closeBehavior = interaction.options.getString("close_behavior");
     const allowMultiple = interaction.options.getBoolean("allow_multiple");
     const transcriptOnClose = interaction.options.getBoolean("transcript_on_close");
