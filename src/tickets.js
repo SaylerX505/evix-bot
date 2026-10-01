@@ -238,10 +238,18 @@ export class TicketService {
       throw new Error("This ticket was changed by another action. Please try again.");
     }
     await interaction.channel.setName(statusName(nextStatus, next.ticket_key)).catch(() => null);
-    await addTicketEvent(ticket.id, nextStatus === "waiting" ? "TICKET_WAITING" : "TICKET_RESUMED", interaction.user.id, { status: nextStatus, category: currentCategoryId, warning: routingWarning || "none" });
-    await this.refreshControlMessage(interaction, next);
-    await respond(interaction, buildActionResult(nextStatus === "waiting" ? "Ticket Waiting" : "Ticket Resumed", routingWarning ? (nextStatus === "waiting" ? "The ticket was moved to waiting. " : "The ticket was resumed. ") + routingWarning : (nextStatus === "waiting" ? "The ticket is now waiting for staff handling." : "The ticket is active again.")));
-    await writeTicketLog(interaction.guild, next, nextStatus === "waiting" ? "TICKET_WAITING" : "TICKET_RESUMED", interaction.user.id, { status: nextStatus, category: currentCategoryId });
+    const eventType = nextStatus === "waiting" ? "TICKET_WAITING" : "TICKET_RESUMED";
+    await addTicketEvent(ticket.id, eventType, interaction.user.id, { status: nextStatus, category: currentCategoryId, warning: routingWarning || "none" });
+
+    await respond(interaction, buildActionResult(
+      nextStatus === "waiting" ? "Ticket Waiting" : "Ticket Resumed",
+      routingWarning
+        ? (nextStatus === "waiting" ? "The ticket was moved to waiting. " : "The ticket was resumed. ") + routingWarning
+        : (nextStatus === "waiting" ? "The ticket is now waiting for staff handling." : "The ticket is active again."),
+    ));
+
+    void this.refreshControlMessage(interaction, next).catch((error) => console.error("[evix-ticket-refresh-after-waiting-error]", error));
+    void writeTicketLog(interaction.guild, next, eventType, interaction.user.id, { status: nextStatus, category: currentCategoryId }).catch((error) => console.error("[evix-ticket-log-after-waiting-error]", error));
     return next;
   }
 
@@ -358,10 +366,14 @@ export class TicketService {
     }
 
     await interaction.channel.setName(statusName("open", next.ticket_key)).catch(() => null);
-    await this.refreshControlMessage(interaction, next, { welcomeOverride: "This ticket has been reopened." });
     await addTicketEvent(next.id, "TICKET_REOPENED", interaction.user.id, { category: target.category.id });
+
     await respond(interaction, buildActionResult("Ticket Reopened", "This ticket is open again and ready for handling."));
-    await writeTicketLog(interaction.guild, next, "TICKET_REOPENED", interaction.user.id, { category: target.category.id });
+
+    void this.refreshControlMessage(interaction, next, { welcomeOverride: "This ticket has been reopened." })
+      .catch((error) => console.error("[evix-ticket-refresh-after-reopen-error]", error));
+    void writeTicketLog(interaction.guild, next, "TICKET_REOPENED", interaction.user.id, { category: target.category.id })
+      .catch((error) => console.error("[evix-ticket-log-after-reopen-error]", error));
     return next;
   }
 
