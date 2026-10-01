@@ -263,6 +263,15 @@ export async function handleInteraction(interaction, { service, ui }) {
       await interaction.respond([]).catch(() => null);
       return;
     }
+    const publicTicketStateButton = interaction.isButton?.()
+      && /^evix:t:\d+:waiting$/.test(interaction.customId || "");
+    if (publicTicketStateButton && (interaction.deferred || interaction.replied)) {
+      await interaction.followUp({
+        ...buildErrorResult(normalized),
+        flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+      }).catch(() => null);
+      return;
+    }
     await replySafely(interaction, buildErrorResult(normalized)).catch(() => null);
   }
 }
