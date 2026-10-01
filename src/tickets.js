@@ -35,7 +35,7 @@ export class TicketService {
 
   async getSettings(guildId) {
     return (await getGuildSettings(guildId)) ?? {
-      guild_id: guildId, ticket_category_id: null, open_category_id: null, backup_category_id: null, waiting_category_id: null, closed_category_id: null,
+      guild_id: guildId, ticket_category_id: null, open_category_id: null, backup_category_id: null, closed_category_id: null,
       ticket_log_channel_id: null, moderation_log_channel_id: null, transcript_log_channel_id: null,
       ticket_logs_enabled: true, moderation_logs_enabled: true, transcript_logs_enabled: true,
       log_channel_id: null, transcript_channel_id: null, default_ticket_limit: 1,
@@ -244,7 +244,7 @@ export class TicketService {
   async unclaim(interaction, ticket) {
     this.assertStaff(interaction.member, ticket);
     if (!ticket.claimed_by) return respond(interaction, buildActionResult("Ticket Unclaimed", "This ticket is not currently claimed."));
-    const next = await updateTicket(ticket.id, { claimed_by: null, claimed_at: null }, { statuses: ["open", "waiting"], claimedBy: ticket.claimed_by });
+    const next = await updateTicket(ticket.id, { claimed_by: null, claimed_at: null }, { statuses: ["open"], claimedBy: ticket.claimed_by });
     if (!next) throw new Error("This ticket was changed by another staff member. Please try again.");
     await respond(interaction, buildActionResult("Ticket Unclaimed", "The ticket is available for another staff member to claim."));
     void addTicketEvent(ticket.id, "TICKET_UNCLAIMED", interaction.user.id, { previous_claim: ticket.claimed_by })
@@ -390,8 +390,7 @@ export class TicketService {
           status: "closed",
           closed_at: ticket.closed_at,
           closed_by: ticket.closed_by,
-          reopened_at: ticket.reopened_at,
-          waiting_at: ticket.waiting_at,
+          reopened_at: ticket.reopened_at
           current_category_id: previousCategoryId,
         },
         { statuses: ["open"] },
