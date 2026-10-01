@@ -42,7 +42,6 @@ const ticketCommand = new SlashCommandBuilder()
   .addSubcommand((s) => s.setName("reopen").setDescription("Reopen the current ticket"))
   .addSubcommand((s) => s.setName("claim").setDescription("Claim the current ticket"))
   .addSubcommand((s) => s.setName("unclaim").setDescription("Unclaim the current ticket"))
-  .addSubcommand((s) => s.setName("waiting").setDescription("Move the ticket to waiting or resume it"))
   .addSubcommand((s) => s.setName("add").setDescription("Add a user or role to the current ticket")
     .addUserOption((o) => o.setName("user").setDescription("Member to add"))
     .addRoleOption((o) => o.setName("role").setDescription("Role to add")))
@@ -54,9 +53,8 @@ const ticketCommand = new SlashCommandBuilder()
   .addSubcommand((s) => s.setName("setup").setDescription("Configure ticket categories")
     .addChannelOption((o) => channelOption(o, "tickets_category", "Main ticket category", [ChannelType.GuildCategory]).setRequired(true))
     .addChannelOption((o) => channelOption(o, "backup_category", "Optional backup ticket category", [ChannelType.GuildCategory]))
-    .addChannelOption((o) => channelOption(o, "waiting_category", "Optional waiting ticket category", [ChannelType.GuildCategory]))
     .addChannelOption((o) => channelOption(o, "closed_category", "Optional closed ticket category", [ChannelType.GuildCategory]))
-    .addIntegerOption((o) => o.setName("ticket_limit").setDescription("Open or waiting tickets per member").setMinValue(1).setMaxValue(25)))
+    .addIntegerOption((o) => o.setName("ticket_limit").setDescription("Open tickets per member").setMinValue(1).setMaxValue(25)))
   .addSubcommand((s) => s.setName("config").setDescription("View ticket configuration"))
   .addSubcommand((s) => s.setName("logs").setDescription("Configure ticket logs")
     .addChannelOption((o) => channelOption(o, "ticket_channel", "Ticket lifecycle log channel", [ChannelType.GuildText]))
@@ -141,7 +139,6 @@ export async function handleTicketCommand(interaction, service, ui) {
     const saved = await upsertGuildSettings(interaction.guildId, {
       ticket_category_id: ticketsCategory.id,
       backup_category_id: interaction.options.getChannel("backup_category")?.id,
-      waiting_category_id: interaction.options.getChannel("waiting_category")?.id,
       closed_category_id: interaction.options.getChannel("closed_category")?.id,
       default_ticket_limit: interaction.options.getInteger("ticket_limit") ?? undefined,
     });
@@ -203,7 +200,6 @@ export async function handleTicketCommand(interaction, service, ui) {
     case "reopen": return mutate(() => service.reopen(interaction, ticket));
     case "claim": return mutate(() => service.claim(interaction, ticket));
     case "unclaim": return mutate(() => service.unclaim(interaction, ticket));
-    case "waiting": return mutate(() => service.waiting(interaction, ticket));
     case "add": {
       const user = interaction.options.getUser("user");
       const role = interaction.options.getRole("role");
