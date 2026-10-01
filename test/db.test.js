@@ -7,6 +7,7 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
   const queries = [];
   const originalQuery = pg.Pool.prototype.query;
   const originalEnd = pg.Pool.prototype.end;
+  const originalConnect = pg.Pool.prototype.connect;
 
   pg.Pool.prototype.query = async function(text, params) {
     queries.push({ text, params });
@@ -36,10 +37,37 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
     assert.ok(queries[2].text.includes("claimed_by IS NOT DISTINCT FROM $7"));
     assert.deepEqual(queries[2].params, [3, "closed", null, null, "staff", ["open", "locked"], null]);
 
-    await addPanelOption({ panelId: 1, position: 0, label: "Services", action: "NOTHING", staffRoles: [], pingRoles: [], modalFields: [] });
-    const optionInsert = queries.find((entry) => entry.text.startsWith("INSERT INTO ticket_panel_options"));
+    let optionCount = 0;
+    let optionQueries = [];
+    pg.Pool.prototype.connect = async function() {
+      return {
+        query: async (text, params) => {
+          optionQueries.push({ text, params });
+          if (text === "SELECT id FROM ticket_panels WHERE id=$1 FOR UPDATE") return { rows: [{ id: 1 }] };
+          if (text.startsWith("SELECT COUNT(*)::int AS count FROM ticket_panel_options")) return { rows: [{ count: optionCount }] };
+          if (text.startsWith("SELECT COALESCE(MAX(position), -1) + 1 AS next_position")) return { rows: [{ next_position: 4 }] };
+          if (text.startsWith("INSERT INTO ticket_panel_options")) return { rows: [{ id: 7, position: 4, action: "NOTHING" }] };
+          return { rows: [] };
+        },
+        release() {},
+      };
+    };
+
+    const option = await addPanelOption({ panelId: 1, position: 0, label: "Services", action: "NOTHING", staffRoles: [], pingRoles: [], modalFields: [] });
+    const optionInsert = optionQueries.find((entry) => entry.text.startsWith("INSERT INTO ticket_panel_options"));
     assert.ok(optionInsert);
+    assert.equal(optionInsert.params[1], 4);
     assert.equal(optionInsert.params[5], "NOTHING");
+    assert.equal(option.position, 4);
+
+    optionCount = 25;
+    await assert.rejects(
+      () => addPanelOption({ panelId: 1, position: 99, label: "Blocked", action: "CREATE_TICKET", staffRoles: [], pingRoles: [], modalFields: [] }),
+      (error) => error.code === "EVIX_PANEL_OPTION_LIMIT" && /25 ticket options/.test(error.message),
+    );
+
+    const optionCountQuery = optionQueries.filter((entry) => entry.text.startsWith("SELECT COUNT(*)::int AS count FROM ticket_panel_options"));
+    assert.equal(optionCountQuery.length, 2);
 
     queries.length = 0;
     pg.Pool.prototype.query = async function(text, params) {
@@ -66,6 +94,7 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
   } finally {
     pg.Pool.prototype.query = originalQuery;
     pg.Pool.prototype.end = originalEnd;
+    pg.Pool.prototype.connect = originalConnect;
     await closeDatabase();
   }
 });
