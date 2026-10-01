@@ -126,6 +126,7 @@ export async function handleInteraction(interaction, { service, ui }) {
       if (action === "basic") return interaction.showModal(panelBasicModal(draft));
       if (action === "media") return interaction.showModal(panelMediaModal(draft));
       if (action === "save") {
+        await interaction.deferUpdate();
         const current = await getPanel(interaction.guildId, panelId);
         if (!current) throw new Error("Panel not found.");
         const panelName = String(draft.name || "").trim();
@@ -148,7 +149,7 @@ export async function handleInteraction(interaction, { service, ui }) {
           const message = await channel?.messages.fetch(refreshed.message_id).catch(() => null);
           if (message) await message.edit(ui.buildPanelMessage(refreshed, interaction.client.user)).catch(() => null);
         }
-        return interaction.update(buildPanelStudioPayload(refreshed, interaction.client.user, { saved: true }));
+        return interaction.editReply(buildPanelStudioPayload(refreshed, interaction.client.user, { saved: true }));
       }
       return;
     }
@@ -166,32 +167,45 @@ export async function handleInteraction(interaction, { service, ui }) {
       const match = interaction.customId.match(/^evix:confirm:(\d+):(close|keep-open|delete|cancel)$/);
       if (!match) throw new Error("Invalid confirmation action.");
       const [, ticketId, action] = match;
+
+      // Acknowledge immediately; database/API work must not consume Discord's interaction window.
+      await interaction.deferUpdate();
+
       const ticket = await service.getTicket(interaction, ticketId);
       const canManage = service.canManageTicket(interaction.member, ticket);
       const canClose = service.canClose(interaction.member, ticket);
       if (!canManage && !((action === "close" || action === "keep-open") && canClose)) throw new Error("You are not authorized to confirm this action.");
+
       if (action === "keep-open" || action === "cancel") {
-        await interaction.deferUpdate();
         await interaction.deleteReply().catch(() => null);
         return;
       }
-      if (action === "close") {
-        await interaction.deferUpdate();
-        await interaction.deleteReply().catch(() => null);
-        try {
+
+      await interaction.deleteReply().catch(() => null);
+
+      try {
+        if (action === "close") {
           await service.close(interaction, ticket, { reply: false, closedBy: interaction.user.id });
-        } catch (error) {
-          const normalized = normalizeError(error);
-          logInteractionError(interaction, normalized, error);
           await interaction.followUp({
-            ...buildErrorResult(normalized),
+            ...buildActionResult("Ticket Closed", "This ticket has been closed by <@" + interaction.user.id + ">."),
             flags: MessageFlags.Ephemeral,
           }).catch(() => null);
+          return;
         }
-        return;
+
+        await service.delete(interaction, ticket);
+        await interaction.followUp({
+          ...buildActionResult("Ticket Deleted", "This ticket has been permanently deleted."),
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => null);
+      } catch (error) {
+        const normalized = normalizeError(error);
+        logInteractionError(interaction, normalized, error);
+        await interaction.followUp({
+          ...buildErrorResult(normalized),
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => null);
       }
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      await service.delete(interaction, ticket);
       return;
     }
 
@@ -199,15 +213,21 @@ export async function handleInteraction(interaction, { service, ui }) {
       const match = interaction.customId.match(/^evix:t:(\d+):(claim|unclaim|close|reopen|transcript|delete|info|waiting)$/);
       if (!match) throw new Error("Invalid ticket control.");
       const [, ticketId, action] = match;
+
+      // Acknowledge immediately; ticket lookup and every service action can be slow.
+      const ephemeralActions = new Set(["close", "delete", "transcript"]);
+      await interaction.deferReply({
+        flags: ephemeralActions.has(action) ? MessageFlags.Ephemeral : 0,
+      });
+
       const ticket = await service.getTicket(interaction, ticketId);
       const ownerAllowed = ticket.owner_id === interaction.user.id && ["close", "info"].includes(action);
       if (!service.canManageTicket(interaction.member, ticket) && !ownerAllowed) throw new Error("You are not authorized to use this ticket control.");
 
-      if (action === "close") return interaction.reply(buildCloseConfirmation(ticket));
+      if (action === "close") return service.requestClose(interaction, ticket);
       if (action === "delete") return service.requestDelete(interaction, ticket);
       if (action === "info") return service.info(interaction, ticket);
 
-      await interaction.deferReply({ flags: action === "transcript" ? MessageFlags.Ephemeral : 0 });
       switch (action) {
         case "claim": return service.claim(interaction, ticket);
         case "unclaim": return service.unclaim(interaction, ticket);
@@ -217,6 +237,8 @@ export async function handleInteraction(interaction, { service, ui }) {
         default: throw new Error("Unsupported ticket control.");
       }
     }
+
+
   } catch (error) {
     const normalized = normalizeError(error);
     logInteractionError(interaction, normalized, error);
