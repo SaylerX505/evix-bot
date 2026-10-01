@@ -295,6 +295,73 @@ export class TicketService {
     return next;
   }
 
+  async resume(interaction, ticket) {
+    this.assertStaff(interaction.member, ticket);
+    if (ticket.status !== "waiting") {
+      if (statusIsActive(ticket.status)) return respond(interaction, buildActionResult("Ticket Already Open", "This ticket is already active."));
+      throw new Error("Only waiting tickets can be resumed.");
+    }
+    transitionTicket(ticket.status, "waiting");
+
+    const previousCategoryId = ticket.current_category_id || interaction.channel.parentId || ticket.category_id || null;
+    const next = await updateTicket(
+      ticket.id,
+      {
+        status: "open",
+        waiting_at: null,
+        current_category_id: previousCategoryId,
+      },
+      { statuses: ["waiting"] },
+    );
+    if (!next) throw new Error("This ticket was changed by another action. Please try again.");
+
+    await interaction.channel.setName(statusName("open", next.ticket_key)).catch(() => null);
+
+    // Update the public control message immediately. Category routing can be slower
+    // and must not hold the user-facing Resume action hostage.
+    await this.refreshControlMessage(interaction, next, {
+      welcomeOverride: next.welcome_message || "This ticket has been resumed.",
+    });
+
+    let routed = next;
+    let routingWarning = null;
+    try {
+      const settings = await this.getSettings(interaction.guildId);
+      const candidates = categoryCandidates(
+        ticket.category_id || settings.ticket_category_id || settings.open_category_id,
+        settings.backup_category_id,
+      );
+      const target = await this.findCategoryForCreate(interaction.guild, candidates);
+      const moved = await moveTicketChannel(interaction.channel, target.category.id);
+      if (moved) {
+        routed = await updateTicket(next.id, { current_category_id: moved.id }, { statuses: ["open"] }) ?? {
+          ...next,
+          current_category_id: moved.id,
+        };
+        if (String(moved.id) !== String(previousCategoryId || "")) {
+          await this.refreshControlMessage(interaction, routed);
+        }
+      }
+    } catch (error) {
+      routingWarning = error?.message || "The ticket category could not be restored.";
+      console.error("[evix-ticket-resume-routing-error]", error);
+    }
+
+    const finalTicket = routed;
+    void addTicketEvent(finalTicket.id, "TICKET_RESUMED", interaction.user.id, {
+      status: finalTicket.status,
+      category: finalTicket.current_category_id,
+      warning: routingWarning || "none",
+    }).catch((error) => console.error("[evix-ticket-resume-event-error]", error));
+    void writeTicketLog(interaction.guild, finalTicket, "TICKET_RESUMED", interaction.user.id, {
+      status: finalTicket.status,
+      category: finalTicket.current_category_id,
+      warning: routingWarning || "none",
+    }).catch((error) => console.error("[evix-ticket-resume-log-error]", error));
+
+    return finalTicket;
+  }
+
   async requestClose(interaction, ticket) {
     if (!this.canClose(interaction.member, ticket)) throw new Error("Only the ticket owner or configured staff can close this ticket.");
     if (ticket.status === "closed") throw new Error("This ticket is already closed.");
@@ -361,6 +428,16 @@ export class TicketService {
       ));
     }
 
+    // The public control message must become the closed-ticket view immediately.
+    // Do this before transcript generation, which can be much slower.
+    if (backgroundSideEffects) {
+      await this.refreshControlMessage(
+        interaction,
+        next,
+        { closed: true, closedBy: closedBy || interaction.user.id },
+      );
+    }
+
     const finishSideEffects = async () => {
       let finalTicket = next;
       let transcriptUrl = finalTicket.transcript_url || null;
@@ -379,11 +456,6 @@ export class TicketService {
         }
       }
 
-      await this.refreshControlMessage(
-        interaction,
-        finalTicket,
-        { closed: true, closedBy: closedBy || interaction.user.id },
-      );
       await addTicketEvent(finalTicket.id, "TICKET_CLOSED", interaction.user.id, {
         duration: formatDuration(ticket.created_at),
         transcript: transcriptUrl || "not created",
