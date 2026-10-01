@@ -22,6 +22,7 @@ import {
   updatePanel,
 } from "./db.js";
 import { parseUserId } from "./utils.js";
+import { buildPanelMessage } from "./ui.js";
 import { buildAddUserModal, buildRenameModal, buildTicketModal, handlePanelCommand, handleTicketCommand } from "./commands.js";
 
 function errorMessage(error) {
@@ -55,7 +56,7 @@ async function savePanelDraft(interaction, panelId, draft) {
     placeholder: String(draft.placeholder || "").trim(),
     footer: String(draft.footer || "").trim(),
     footer_show_bot: draft.footer_show_bot === true,
-  }));
+  });
   return saved;
 }
 
