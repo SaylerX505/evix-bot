@@ -320,6 +320,7 @@ export async function handlePanelCommand(interaction, ui) {
     const action = interaction.options.getString("action");
     const name = interaction.options.getString("name");
 
+    if (staffRole || pingRole) await validateConfiguredRoles(interaction.guild, [staffRole?.id, pingRole?.id]);
     if (name !== null) patch.label = name;
     if (description !== null) patch.description = description === "-" ? null : description;
     if (emoji !== null) patch.emoji = emoji === "-" ? null : emoji;
