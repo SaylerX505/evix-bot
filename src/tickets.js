@@ -279,7 +279,7 @@ export class TicketService {
       closed_by: closedBy || interaction.user.id,
       claimed_by: null,
       claimed_at: null,
-    }, { statuses: ["open", "waiting"] });
+    }, { statuses: ["open", "locked", "waiting"] });
     if (!next) throw new Error("This ticket was already closed by another action.");
 
     try {
