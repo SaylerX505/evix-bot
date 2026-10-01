@@ -262,29 +262,27 @@ export async function handleTicketCommand(interaction, service, ui) {
   }
 }
 
-async function handlePanelList(interaction, ui) {
+async function handlePanelList(interaction) {
   const panels = await listPanels(interaction.guildId);
+  const { ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize } = await import("discord.js");
   const lines = panels.length
-    ? panels.map((panel) => {
-      const optionCount = panel.id;
-      return "**" + panel.name + "** · ID " + optionCount;
-    })
-    : ["No panels created yet. Use /panel create."];
-  const container = ui.buildSetupSummary({
-    ticket_category_id: null,
-    backup_category_id: null,
-    waiting_category_id: null,
-    closed_category_id: null,
-    ticket_log_channel_id: null,
-    moderation_log_channel_id: null,
-    transcript_log_channel_id: null,
-    default_ticket_limit: 1,
+    ? panels.map((panel) => "**" + panel.name + "** · ID " + panel.id).join("\n")
+    : "No panels created yet. Use /panel create.";
+  const container = new ContainerBuilder()
+    .setAccentColor(0x5865f2)
+    .addTextDisplayComponents(
+      new TextDisplayBuilder().setContent("# Evix Panels"),
+      new TextDisplayBuilder().setContent(lines),
+    )
+    .addSeparatorComponents(
+      new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
+    )
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent("-# Evix 1.0.2"));
+  return interaction.reply({
+    components: [container],
+    flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+    allowedMentions: { parse: [] },
   });
-  container.components[0].components.unshift({
-    type: 10,
-    content: "# Evix Panels\n" + lines.join("\n"),
-  });
-  return interaction.reply(container);
 }
 
 export async function handlePanelCommand(interaction, ui) {
