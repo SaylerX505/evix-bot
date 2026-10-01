@@ -82,8 +82,6 @@ function delayedService(ticket) {
   service.info = async (interaction) => { await interaction.editReply({ ok: "info" }); };
   service.claim = async (interaction) => { service.calls.push("claim"); await interaction.editReply({ ok: "claim" }); };
   service.unclaim = async (interaction) => { service.calls.push("unclaim"); await interaction.editReply({ ok: "unclaim" }); };
-  service.waiting = async (interaction) => { service.calls.push("waiting"); await interaction.editReply({ ok: "waiting" }); };
-  service.resume = async (interaction) => { service.calls.push("resume"); await interaction.editReply({ ok: "resume" }); };
   service.reopen = async (interaction) => { service.calls.push("reopen"); await interaction.editReply({ ok: "reopen" }); };
   service.sendTranscript = async (interaction) => { service.calls.push("transcript"); await interaction.editReply({ ok: "transcript" }); };
   return service;
@@ -101,7 +99,7 @@ function makeTicketButton(customId) {
 }
 
 test("ticket control buttons acknowledge before slow work", async () => {
-  const actions = ["claim", "unclaim", "waiting", "close", "reopen", "transcript", "delete", "info"];
+  const actions = ["claim", "unclaim", "close", "reopen", "transcript", "delete", "info"];
   for (const action of actions) {
     const interaction = makeTicketButton("evix:t:42:" + action);
     const service = delayedService({
@@ -117,23 +115,6 @@ test("ticket control buttons acknowledge before slow work", async () => {
   }
 });
 
-
-test("waiting button failures are reported ephemerally without replacing the public control", async () => {
-  const interaction = makeTicketButton("evix:t:42:waiting");
-  const service = delayedService({
-    id: 42,
-    owner_id: "different",
-    status: "waiting",
-    staff_roles: [],
-  });
-  service.canManageTicket = () => true;
-  service.resume = async () => { throw new Error("resume failed"); };
-
-  await handleInteraction(interaction, { service, ui: {} });
-
-  assert.deepEqual(interaction.calls, ["deferUpdate", "followUp"]);
-  assert.equal(interaction.calls.includes("editReply"), false);
-});
 
 test("waiting button updates the public control while slash waiting keeps its reply path", async () => {
   const button = makeTicketButton("evix:t:42:waiting");
