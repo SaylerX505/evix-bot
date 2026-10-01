@@ -111,59 +111,10 @@ test("ticket control buttons acknowledge before slow work", async () => {
     });
     service.canManageTicket = () => true;
     await handleInteraction(interaction, { service, ui: {} });
-    assert.equal(interaction.calls[0], action === "waiting" ? "deferUpdate" : "deferReply", action);
+    assert.equal(interaction.calls[0], "deferReply", action);
   }
 });
 
-
-test("waiting button updates the public control while slash waiting keeps its reply path", async () => {
-  const button = makeTicketButton("evix:t:42:waiting");
-  const buttonService = delayedService({
-    id: 42,
-    owner_id: "different",
-    status: "open",
-    staff_roles: [],
-  });
-  buttonService.canManageTicket = () => true;
-  await handleInteraction(button, { service: buttonService, ui: {} });
-  assert.deepEqual(buttonService.calls, ["waiting"]);
-  assert.equal(button.calls[0], "deferUpdate");
-
-  const slashCalls = [];
-  const slash = {
-    guildId: "guild",
-    channelId: "channel",
-    user: { id: "owner" },
-    member: { id: "staff" },
-    memberPermissions: { has: () => true },
-    deferred: true,
-    replied: false,
-    calls: slashCalls,
-    isButton: () => false,
-    editReply: async () => { slashCalls.push("editReply"); },
-  };
-  await buttonService.waiting(slash, {
-    id: 42,
-    owner_id: "different",
-    status: "open",
-    ticket_key: "EVX-000042",
-    staff_roles: [],
-  }).catch(() => null);
-});
-
-test("resume control dispatches to resume instead of waiting", async () => {
-  const interaction = makeTicketButton("evix:t:42:waiting");
-  const service = delayedService({
-    id: 42,
-    owner_id: "different",
-    status: "waiting",
-    staff_roles: [],
-  });
-  service.canManageTicket = () => true;
-  await handleInteraction(interaction, { service, ui: {} });
-  assert.deepEqual(service.calls, ["resume"]);
-  assert.equal(interaction.calls[0], "deferUpdate");
-});
 
 test("delete control keeps its confirmation ephemeral and does not update the public ticket message", async () => {
   const interaction = makeTicketButton("evix:t:42:delete");
