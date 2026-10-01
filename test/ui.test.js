@@ -1,32 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { MessageFlags } from "discord.js";
-import { buildDeleteConfirmation, buildPanelMessage, buildTicketView } from "../src/ui.js";
+import { buildCloseConfirmation, buildClosedTicketView, buildInfoView, buildPanelMessage, buildTicketView } from "../src/ui.js";
 
 function option(id, extra = {}) {
-  return {
-    id,
-    panel_id: 1,
-    label: "Option " + id,
-    description: extra.description ?? null,
-    emoji: extra.emoji ?? null,
-    action: "CREATE_TICKET",
-  };
+  return { id, panel_id: 1, label: "Option " + id, description: extra.description ?? null, emoji: extra.emoji ?? null, action: "CREATE_TICKET" };
 }
-
-function containerJson(payload) {
-  return payload.components[0].toJSON();
-}
+function containerJson(payload) { return payload.components[0].toJSON(); }
 
 test("ticket panels are dropdown-only Components V2 containers", () => {
-  const payload = buildPanelMessage({
-    id: 1,
-    options: [option(1, { description: "Get support", emoji: "🎟️" })],
-  });
-
+  const payload = buildPanelMessage({ id: 1, options: [option(1, { description: "Get support", emoji: "🎟️" })] });
   assert.equal(payload.flags, MessageFlags.IsComponentsV2);
   assert.deepEqual(payload.allowedMentions, { parse: [] });
-
   const container = containerJson(payload);
   assert.equal(container.type, 17);
   const rows = container.components.filter((component) => component.type === 1);
@@ -36,15 +21,7 @@ test("ticket panels are dropdown-only Components V2 containers", () => {
 });
 
 test("panel content is optional and the dropdown remains valid", () => {
-  assert.doesNotThrow(() => buildPanelMessage({
-    id: 1,
-    title: "",
-    description: "",
-    image_url: null,
-    footer: "",
-    footer_show_bot: false,
-    options: [option(1)],
-  }));
+  assert.doesNotThrow(() => buildPanelMessage({ id: 1, title: "", description: "", image_url: null, options: [option(1)] }));
 });
 
 test("panel preview disables ticket creation", () => {
@@ -53,36 +30,55 @@ test("panel preview disables ticket creation", () => {
   assert.equal(select.disabled, true);
 });
 
-test("panel can render optional image and bot footer", () => {
-  const payload = buildPanelMessage({
-    id: 1,
-    title: "",
-    description: "Choose a ticket type.",
-    image_url: "https://example.com/panel.png",
-    footer: "Support Center",
-    footer_show_bot: true,
-    options: [option(1)],
-  }, {
-    username: "Evix",
-    displayAvatarURL: () => "https://example.com/avatar.png",
-  });
-
+test("panel no longer renders a footer", () => {
+  const payload = buildPanelMessage({ id: 1, footer: "Should not render", footer_show_bot: true, options: [option(1)] }, { username: "Evix", displayAvatarURL: () => "https://example.com/avatar.png" });
   const components = containerJson(payload).components;
-  assert.ok(components.some((component) => component.type === 12));
-  assert.ok(components.some((component) => component.type === 10));
-  assert.ok(components.some((component) => component.type === 9));
+  assert.equal(components.some((component) => component.type === 9), false);
+  assert.equal(components.some((component) => JSON.stringify(component).includes("Should not render")), false);
 });
 
-test("ticket, waiting, and delete views stay in Components V2", () => {
-  const ticket = {
-    id: 42,
-    ticket_key: "EVX-000042",
-    type_label: "Support",
-    owner_id: "123456",
-    claimed_by: null,
-    status: "waiting",
-  };
+test("ticket controls remove unclaim, rename, add-user, lock and unlock", () => {
+  const payload = buildTicketView({ id: 42, ticket_key: "EVX-000042", type_label: "Support", owner_id: "123456", claimed_by: null, status: "open" }, { welcome_message: "Welcome" });
+  const json = JSON.stringify(containerJson(payload));
+  assert.equal(json.includes(":lock"), false);
+  assert.equal(json.includes(":unlock"), false);
+  assert.equal(json.includes(":unclaim"), false);
+  assert.equal(json.includes(":add"), false);
+  assert.equal(json.includes(":rename"), false);
+  assert.equal(json.includes(":claim"), true);
+  assert.equal(json.includes(":waiting"), true);
+  assert.equal(json.includes(":close"), true);
+  assert.equal(json.includes(":info"), true);
+});
 
-  assert.equal(buildTicketView(ticket, { welcome_message: "Welcome" }).flags, MessageFlags.IsComponentsV2);
-  assert.equal(buildDeleteConfirmation(ticket).flags, MessageFlags.IsComponentsV2);
+test("claimed ticket renders a public claimed state with unclaim control", () => {
+  const payload = buildTicketView({ id: 42, ticket_key: "EVX-000042", type_label: "Support", owner_id: "123456", claimed_by: "999999", claimed_at: "2026-10-01T00:00:00.000Z", status: "open" }, { welcome_message: "Welcome" });
+  const json = JSON.stringify(containerJson(payload));
+  assert.equal(json.includes("Ticket Claimed"), true);
+  assert.equal(json.includes("999999"), true);
+  assert.equal(json.includes("Unclaim Ticket"), true);
+});
+
+test("close confirmation is an ephemeral-ready Components V2 container", () => {
+  const payload = buildCloseConfirmation({ id: 42, ticket_key: "EVX-000042" });
+  assert.equal(payload.flags, MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral);
+  const json = JSON.stringify(containerJson(payload));
+  assert.equal(json.includes("Yes, Close Ticket"), true);
+  assert.equal(json.includes("No, Keep Open"), true);
+});
+
+test("closed ticket view exposes transcript, reopen, and delete", () => {
+  const payload = buildClosedTicketView({ id: 42, ticket_key: "EVX-000042", closed_by: "999999" });
+  const json = JSON.stringify(containerJson(payload));
+  assert.equal(json.includes("Get Transcript"), true);
+  assert.equal(json.includes("Reopen"), true);
+  assert.equal(json.includes("Delete Ticket"), true);
+});
+
+test("ticket info is a Components V2 container", () => {
+  const payload = buildInfoView({ id: 42, ticket_key: "EVX-000042", type_label: "Support", owner_id: "123456", claimed_by: "999999", status: "waiting", current_category_id: "777777", created_at: "2026-10-01T00:00:00.000Z" }, ["888888"]);
+  assert.equal(payload.flags, MessageFlags.IsComponentsV2);
+  const json = JSON.stringify(containerJson(payload));
+  assert.equal(json.includes("EVX-000042"), true);
+  assert.equal(json.includes("waiting"), true);
 });
