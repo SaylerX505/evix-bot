@@ -248,9 +248,9 @@ export function buildSetupSummary(settings) {
     "**Backup tickets category:** " + (settings?.backup_category_id ? "<#" + settings.backup_category_id + ">" : "Not configured"),
     "**Waiting category:** " + (settings?.waiting_category_id ? "<#" + settings.waiting_category_id + ">" : "Not configured"),
     "**Closed tickets category:** " + (settings?.closed_category_id ? "<#" + settings.closed_category_id + ">" : "Not configured"),
-    "**Ticket logs:** " + (settings?.ticket_logs_enabled === false ? "off" : (settings?.ticket_log_channel_id || settings?.log_channel_id ? "<#" + (settings.ticket_log_channel_id || settings.log_channel_id) + ">" : "fallback only")),
-    "**Moderation logs:** " + (settings?.moderation_logs_enabled === false ? "off" : (settings?.moderation_log_channel_id ? "<#" + settings.moderation_log_channel_id + ">" : "fallback to ticket logs")),
-    "**Transcript logs:** " + (settings?.transcript_logs_enabled === false ? "off" : (settings?.transcript_log_channel_id || settings?.transcript_channel_id ? "<#" + (settings.transcript_log_channel_id || settings.transcript_channel_id) + ">" : "off")),
+    "**Ticket logs:** " + (settings?.ticket_logs_enabled === false || !(settings?.ticket_log_channel_id || settings?.log_channel_id) ? "off" : "<#" + (settings.ticket_log_channel_id || settings.log_channel_id) + ">"),
+    "**Moderation logs:** " + (settings?.moderation_logs_enabled === false ? "off" : (settings?.moderation_log_channel_id ? "<#" + settings.moderation_log_channel_id + ">" : ((settings?.ticket_logs_enabled !== false && (settings?.ticket_log_channel_id || settings?.log_channel_id)) ? "fallback → <#" + (settings.ticket_log_channel_id || settings.log_channel_id) + ">" : "off"))),
+    "**Transcript logs:** " + (settings?.transcript_logs_enabled === false || !(settings?.transcript_log_channel_id || settings?.transcript_channel_id) ? "off" : "<#" + (settings.transcript_log_channel_id || settings.transcript_channel_id) + ">"),
     "**Ticket limit:** " + (settings?.default_ticket_limit ?? 1),
   ];
   if (settings?.panels_count !== undefined) lines.push("**Panels:** " + settings.panels_count);
