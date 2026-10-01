@@ -153,3 +153,43 @@ test("async ticket service failures are caught after the interaction is acknowle
   assert.equal(interaction.calls[0], "deferReply");
   assert.equal(interaction.calls.includes("editReply"), true);
 });
+
+
+function makePanelCommandInteraction(subcommand) {
+  const calls = [];
+  const interaction = {
+    commandName: "panel",
+    customId: null,
+    guildId: "guild",
+    channelId: "channel",
+    user: { id: "user" },
+    member: { id: "user" },
+    memberPermissions: { has: () => false },
+    deferred: false,
+    replied: false,
+    calls,
+    options: {
+      getSubcommand: () => subcommand,
+      getString: () => null,
+    },
+    isAutocomplete: () => false,
+    isChatInputCommand: () => true,
+    isStringSelectMenu: () => false,
+    isModalSubmit: () => false,
+    isButton: () => false,
+    deferReply: async () => { interaction.deferred = true; calls.push("deferReply"); },
+    reply: async () => { interaction.replied = true; calls.push("reply"); },
+    editReply: async () => { calls.push("editReply"); },
+  };
+  return interaction;
+}
+
+test("panel create and edit acknowledge before permission/database work", async () => {
+  for (const subcommand of ["create", "edit"]) {
+    const interaction = makePanelCommandInteraction(subcommand);
+    await handleInteraction(interaction, { service: {}, ui: {} });
+    assert.equal(interaction.calls[0], "deferReply");
+    assert.equal(interaction.deferred, true);
+    assert.equal(interaction.calls.includes("editReply"), true);
+  }
+});
