@@ -99,7 +99,7 @@ export async function handleInteraction(interaction, { service, ui }) {
       }
       setPanelDraft(interaction.guildId, interaction.user.id, match[1], draft);
       await interaction.deferUpdate();
-      return interaction.editReply(buildPanelStudioPayload(draft, interaction.client.user));
+      return await interaction.editReply(buildPanelStudioPayload(draft, interaction.client.user));
     }
 
     if (interaction.isButton() && interaction.customId.startsWith("evix:panelstudio:")) {
@@ -111,11 +111,11 @@ export async function handleInteraction(interaction, { service, ui }) {
         const draft = await requirePanelDraft(interaction, panelId);
         const preview = buildPanelMessage(draft, interaction.client.user, { preview: true });
         preview.components.push(new ContainerBuilder().addActionRowComponents(new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(panelStudioButtonId(panelId, "preview-back")).setLabel("Back").setStyle(ButtonStyle.Secondary))));
-        return interaction.update(preview);
+        return await interaction.update(preview);
       }
       if (action === "preview-back") {
         const draft = await requirePanelDraft(interaction, panelId);
-        return interaction.update(buildPanelStudioPayload(draft, interaction.client.user));
+        return await interaction.update(buildPanelStudioPayload(draft, interaction.client.user));
       }
       if (action === "close") {
         clearPanelDraft(interaction.guildId, interaction.user.id, panelId);
@@ -123,8 +123,8 @@ export async function handleInteraction(interaction, { service, ui }) {
         return interaction.deleteReply().catch(() => null);
       }
       const draft = await requirePanelDraft(interaction, panelId);
-      if (action === "basic") return interaction.showModal(panelBasicModal(draft));
-      if (action === "media") return interaction.showModal(panelMediaModal(draft));
+      if (action === "basic") return await interaction.showModal(panelBasicModal(draft));
+      if (action === "media") return await interaction.showModal(panelMediaModal(draft));
       if (action === "save") {
         await interaction.deferUpdate();
         const current = await getPanel(interaction.guildId, panelId);
@@ -149,7 +149,7 @@ export async function handleInteraction(interaction, { service, ui }) {
           const message = await channel?.messages.fetch(refreshed.message_id).catch(() => null);
           if (message) await message.edit(ui.buildPanelMessage(refreshed, interaction.client.user)).catch(() => null);
         }
-        return interaction.editReply(buildPanelStudioPayload(refreshed, interaction.client.user, { saved: true }));
+        return await interaction.editReply(buildPanelStudioPayload(refreshed, interaction.client.user, { saved: true }));
       }
       return;
     }
@@ -228,17 +228,17 @@ export async function handleInteraction(interaction, { service, ui }) {
       const ownerAllowed = ticket.owner_id === interaction.user.id && ["close", "info"].includes(action);
       if (!service.canManageTicket(interaction.member, ticket) && !ownerAllowed) throw new Error("You are not authorized to use this ticket control.");
 
-      if (action === "close") return service.requestClose(interaction, ticket);
-      if (action === "delete") return service.requestDelete(interaction, ticket);
-      if (action === "info") return service.info(interaction, ticket);
+      if (action === "close") return await service.requestClose(interaction, ticket);
+      if (action === "delete") return await service.requestDelete(interaction, ticket);
+      if (action === "info") return await service.info(interaction, ticket);
 
       const mutate = (callback) => service.withTicketActionLock(ticket.id, callback);
       switch (action) {
-        case "claim": return mutate(() => service.claim(interaction, ticket));
-        case "unclaim": return mutate(() => service.unclaim(interaction, ticket));
-        case "waiting": return mutate(() => service.waiting(interaction, ticket));
-        case "reopen": return mutate(() => service.reopen(interaction, ticket));
-        case "transcript": return service.sendTranscript(interaction, ticket);
+        case "claim": return await mutate(() => service.claim(interaction, ticket));
+        case "unclaim": return await mutate(() => service.unclaim(interaction, ticket));
+        case "waiting": return await mutate(() => service.waiting(interaction, ticket));
+        case "reopen": return await mutate(() => service.reopen(interaction, ticket));
+        case "transcript": return await service.sendTranscript(interaction, ticket);
         default: throw new Error("Unsupported ticket control.");
       }
     }
