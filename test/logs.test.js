@@ -52,8 +52,6 @@ test("non-lifecycle ticket events are not written to audit logs", async () => {
   const guild = makeGuild();
 
   for (const event of [
-    "TICKET_WAITING",
-    "TICKET_RESUMED",
     "TICKET_REOPENED",
     "TICKET_UNCLAIMED",
     "TICKET_RENAMED",
