@@ -99,52 +99,19 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
   }
 });
 
-test("ticket action lock serializes a ticket and releases its session lock", async () => {
-  const originalConnect = pg.Pool.prototype.connect;
-  const calls = [];
-  pg.Pool.prototype.connect = async function() {
-    return {
-      query: async (text) => {
-        calls.push(text);
-        if (text.startsWith("SELECT pg_try_advisory_lock")) return { rows: [{ locked: true }] };
-        return { rows: [] };
-      },
-      release() { calls.push("release"); },
-    };
-  };
 
-  try {
-    await initDatabase("postgres://evix:test@localhost/evix");
-    const result = await withTicketActionLock(42, async () => "ok");
-    assert.equal(result, "ok");
-    assert.equal(calls.some((text) => String(text).startsWith("SELECT pg_try_advisory_lock")), true);
-    assert.equal(calls.some((text) => String(text).startsWith("SELECT pg_advisory_unlock")), true);
-    assert.equal(calls.at(-1), "release");
-  } finally {
-    pg.Pool.prototype.connect = originalConnect;
-    await closeDatabase();
-  }
+test("ticket action lock serializes a ticket without holding a database connection", async () => {
+  const result = await withTicketActionLock(42, async () => "ok");
+  assert.equal(result, "ok");
 });
 
 test("ticket action lock rejects a concurrent action", async () => {
-  const originalConnect = pg.Pool.prototype.connect;
-  pg.Pool.prototype.connect = async function() {
-    return {
-      query: async (text) => text.startsWith("SELECT pg_try_advisory_lock")
-        ? { rows: [{ locked: false }] }
-        : { rows: [] },
-      release() {},
-    };
-  };
-
-  try {
-    await initDatabase("postgres://evix:test@localhost/evix");
-    await assert.rejects(
-      () => withTicketActionLock(42, async () => "unexpected"),
-      (error) => error.code === "EVIX_TICKET_BUSY",
-    );
-  } finally {
-    pg.Pool.prototype.connect = originalConnect;
-    await closeDatabase();
-  }
+  let release;
+  const first = withTicketActionLock(42, () => new Promise((resolve) => { release = resolve; }));
+  await assert.rejects(
+    () => withTicketActionLock(42, async () => "unexpected"),
+    (error) => error.code === "EVIX_TICKET_BUSY",
+  );
+  release("done");
+  assert.equal(await first, "done");
 });
