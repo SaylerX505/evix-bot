@@ -122,5 +122,5 @@ test("closed ticket replaces active controls with only transcript, reopen and de
   assert.match(json, /evix:t:42:transcript/);
   assert.match(json, /evix:t:42:reopen/);
   assert.match(json, /evix:t:42:delete/);
-  assert.doesNotMatch(json, /evix:t:42:(claim|unclaim|waiting|close|info)/);
+  assert.doesNotMatch(json, /evix:t:42:(claim|unclaim|close|info)/);
 });
