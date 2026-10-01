@@ -128,8 +128,10 @@ export async function handleInteraction(interaction, { service, ui }) {
       if (action === "save") {
         const current = await getPanel(interaction.guildId, panelId);
         if (!current) throw new Error("Panel not found.");
+        const panelName = String(draft.name || "").trim();
+        if (!panelName) throw new Error("Panel name is required.");
         const saved = await updatePanel(panelId, {
-          name: String(draft.name || "").trim(),
+          name: panelName,
           title: String(draft.title || "").trim(),
           description: String(draft.description || "").trim(),
           image_url: draft.image_url || null,
