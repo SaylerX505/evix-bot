@@ -66,11 +66,8 @@ Administration:
 
 ### Role input
 
-For staff/ping role lists, use Discord role mentions separated by spaces, for example:
+Staff and ping roles use Discord's native role picker in `/panel option-add` and `/panel option-edit`. The command stores the selected role as the corresponding role list entry.
 
-```text
-<@&123456789012345678> <@&987654321098765432>
-```
 
 ## Ticket behavior
 
@@ -85,14 +82,8 @@ The database is PostgreSQL and startup schema creation is additive/idempotent. E
 
 ### Ticket forms
 
-`/panel option-add` and `option-edit` accept an optional JSON `form` field with up to five inputs:
+Existing ticket options can still contain stored modal fields for backward compatibility, but `/panel option-add` and `/panel option-edit` no longer expose form configuration. New options use the standard ticket flow unless a form was already stored on that option.
 
-```json
-[
-  { "id": "reason", "label": "What do you need help with?", "style": "paragraph", "required": true },
-  { "id": "order", "label": "Order ID", "required": false }
-]
-```
 
 ## UI
 
