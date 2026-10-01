@@ -458,16 +458,18 @@ export class TicketService {
       throw new Error("Only active tickets can be moved to waiting.");
     }
 
-    const nextStatus = transitionTicket(ticket.status, "waiting");
+    const previousStatus = ticket.status;
+    const nextStatus = transitionTicket(previousStatus, "waiting");
     const settings = await this.getSettings(interaction.guildId);
-    let currentCategoryId = ticket.current_category_id || ticket.category_id;
+    const originalCategoryId = ticket.current_category_id || ticket.category_id || interaction.channel.parentId || null;
+    let currentCategoryId = originalCategoryId;
     let routingWarning = null;
 
     try {
       await this.setParticipantPermissions(interaction, ticket, {
         view: true,
         send: true,
-        rollbackTo: { view: ticket.status !== "closed", send: ticket.status !== "locked" },
+        rollbackTo: { view: true, send: previousStatus !== "locked" },
       });
     } catch (error) {
       throw new Error("Ticket waiting transition failed: " + (error?.message || "permission update failed"));
@@ -500,12 +502,22 @@ export class TicketService {
         status: nextStatus,
         waiting_at: nextStatus === "waiting" ? new Date() : null,
         current_category_id: currentCategoryId,
-        claimed_by: nextStatus === "waiting" ? ticket.claimed_by : ticket.claimed_by,
+        claimed_by: ticket.claimed_by,
       },
-      { statuses: statusIsActive(ticket.status) ? [ticket.status] : [] },
+      { statuses: [previousStatus] },
     );
 
-    if (!next) throw new Error("This ticket was changed by another action. Please try again.");
+    if (!next) {
+      await this.setParticipantPermissions(interaction, ticket, {
+        view: true,
+        send: previousStatus !== "locked",
+        bestEffort: true,
+      });
+      if (String(currentCategoryId || "") !== String(originalCategoryId || "")) {
+        await moveTicketChannel(interaction.channel, originalCategoryId).catch(() => null);
+      }
+      throw new Error("This ticket was changed by another action. Please try again.");
+    }
 
     await addTicketEvent(ticket.id, "TICKET_WAITING", interaction.user.id, {
       status: nextStatus,
