@@ -9,7 +9,7 @@ function makeGuild() {
     send: async (payload) => { sent.push(payload); return payload; },
   };
   return {
-    client: { user: { username: "Evix", displayAvatarURL: () => null } },
+    client: { user: { username: "Evix", displayAvatarURL: () => "https://cdn.discordapp.com/embed/avatars/0.png" } },
     channels: { fetch: async () => channel },
     sent,
   };
