@@ -1,4 +1,11 @@
-import { MessageFlags } from "discord.js";
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ContainerBuilder,
+  MessageFlags,
+  PermissionFlagsBits,
+} from "discord.js";
 import {
   buildPanelStudioPayload,
   clearPanelDraft,
@@ -8,10 +15,11 @@ import {
   panelStudioButtonId,
   setPanelDraft,
 } from "./panels.js";
-import { buildPanelMessage } from "./ui.js";
+
 import {
   getPanel,
   getPanelOption,
+  updatePanel,
 } from "./db.js";
 import { parseUserId } from "./utils.js";
 import { buildAddUserModal, buildRenameModal, buildTicketModal, handlePanelCommand, handleTicketCommand } from "./commands.js";
@@ -38,7 +46,7 @@ async function updateStudio(interaction, draft, state = {}) {
 }
 
 async function savePanelDraft(interaction, panelId, draft) {
-  const saved = await import("./db.js").then(({ updatePanel }) => updatePanel(panelId, {
+  const saved = await updatePanel(panelId, {
     name: String(draft.name || "").trim(),
     title: String(draft.title || "").trim(),
     description: String(draft.description || "").trim(),
@@ -106,7 +114,7 @@ export async function handleInteraction(interaction, { service, ui }) {
     if (interaction.isModalSubmit() && interaction.customId.startsWith("evix:panelstudio-modal:")) {
       const match = interaction.customId.match(/^evix:panelstudio-modal:(\d+):(basic|media)$/);
       if (!match) throw new Error("Invalid panel studio form.");
-      if (!interaction.memberPermissions?.has("ManageGuild")) {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
         throw new Error("You need Manage Server to edit ticket panels.");
       }
 
@@ -129,7 +137,7 @@ export async function handleInteraction(interaction, { service, ui }) {
     }
 
     if (interaction.isButton() && interaction.customId.startsWith("evix:panelstudio:")) {
-      if (!interaction.memberPermissions?.has("ManageGuild")) {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
         throw new Error("You need Manage Server to manage ticket panels.");
       }
 
@@ -297,17 +305,15 @@ export async function handleInteraction(interaction, { service, ui }) {
 
 function buildPanelStudioPreview(panel, botUser, panelId) {
   const preview = buildPanelMessage(panel, botUser, { preview: true });
-  preview.components.push({
-    type: 17,
-    components: [{
-      type: 1,
-      components: [{
-        type: 2,
-        custom_id: panelStudioButtonId(panelId, "preview-back"),
-        label: "Back",
-        style: 2,
-      }],
-    }],
-  });
+  preview.components.push(
+    new ContainerBuilder().addActionRowComponents(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(panelStudioButtonId(panelId, "preview-back"))
+          .setLabel("Back")
+          .setStyle(ButtonStyle.Secondary),
+      ),
+    ),
+  );
   return preview;
 }
