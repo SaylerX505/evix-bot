@@ -290,14 +290,58 @@ export class TicketService {
     if (statusIsActive(ticket.status)) return respond(interaction, buildActionResult("Ticket Already Open", "This ticket is already active."));
     if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
     transitionTicket(ticket.status, "reopen");
+
     const settings = await this.getSettings(interaction.guildId);
     const candidates = categoryCandidates(ticket.category_id || settings.ticket_category_id || settings.open_category_id, settings.backup_category_id);
+    const previousCategoryId = ticket.current_category_id || interaction.channel.parentId || null;
     let target;
-    try { target = await this.findCategoryForCreate(interaction.guild, candidates); await moveTicketChannel(interaction.channel, target.category.id); }
-    catch (error) { throw new Error("Ticket reopen routing failed: " + (error?.message || "ticket category unavailable")); }
+    try {
+      target = await this.findCategoryForCreate(interaction.guild, candidates);
+      await moveTicketChannel(interaction.channel, target.category.id);
+    } catch (error) {
+      throw new Error("Ticket reopen routing failed: " + (error?.message || "ticket category unavailable"));
+    }
 
-    const next = await updateTicket(ticket.id, { status: "open", reopened_at: new Date(), closed_at: null, closed_by: null, waiting_at: null, current_category_id: target.category.id }, { statuses: ["closed"] });
-    if (!next) throw new Error("This ticket was changed by another action. Please try again.");
+    const next = await updateTicket(
+      ticket.id,
+      {
+        status: "open",
+        reopened_at: new Date(),
+        closed_at: null,
+        closed_by: null,
+        waiting_at: null,
+        current_category_id: target.category.id,
+      },
+      { statuses: ["closed"] },
+    );
+    if (!next) {
+      if (String(target.category.id) !== String(previousCategoryId || "")) await moveTicketChannel(interaction.channel, previousCategoryId).catch(() => null);
+      throw new Error("This ticket was changed by another action. Please try again.");
+    }
+
+    try {
+      await this.setParticipantPermissions(interaction, next, {
+        view: true,
+        send: true,
+        rollbackTo: { view: false, send: false },
+      });
+    } catch (error) {
+      await updateTicket(
+        ticket.id,
+        {
+          status: "closed",
+          closed_at: ticket.closed_at,
+          closed_by: ticket.closed_by,
+          reopened_at: ticket.reopened_at,
+          waiting_at: ticket.waiting_at,
+          current_category_id: previousCategoryId,
+        },
+        { statuses: ["open"] },
+      ).catch(() => null);
+      if (String(target.category.id) !== String(previousCategoryId || "")) await moveTicketChannel(interaction.channel, previousCategoryId).catch(() => null);
+      throw new Error("Ticket reopen failed: " + (error?.message || "participant permissions could not be restored"));
+    }
+
     await interaction.channel.setName(statusName("open", next.ticket_key)).catch(() => null);
     await this.refreshControlMessage(interaction, next, { welcomeOverride: "This ticket has been reopened." });
     await addTicketEvent(next.id, "TICKET_REOPENED", interaction.user.id, { category: target.category.id });
