@@ -21,6 +21,7 @@ const ticket = {
   channel_id: "1535645488341192774",
   status: "closed",
   ticket_log_channel_id: "1555169303479980157",
+  transcript_log_channel_id: "1555169303479980157",
   ticket_logs_enabled: true,
   transcript_logs_enabled: true,
   moderation_logs_enabled: true,
