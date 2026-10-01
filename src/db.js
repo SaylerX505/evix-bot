@@ -289,9 +289,9 @@ export async function upsertGuildSettings(guildId, patch) {
   next.transcript_channel_id = next.transcript_log_channel_id;
 
   const { rows } = await query(
-    "INSERT INTO guild_ticket_settings (guild_id,open_category_id,ticket_category_id,backup_category_id,waiting_category_id,closed_category_id,log_channel_id,ticket_log_channel_id,moderation_log_channel_id,transcript_channel_id,transcript_log_channel_id,default_ticket_limit,updated_at) " +
-    "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW()) " +
-    "ON CONFLICT (guild_id) DO UPDATE SET open_category_id=EXCLUDED.open_category_id,ticket_category_id=EXCLUDED.ticket_category_id,backup_category_id=EXCLUDED.backup_category_id,waiting_category_id=EXCLUDED.waiting_category_id,closed_category_id=EXCLUDED.closed_category_id,log_channel_id=EXCLUDED.log_channel_id,ticket_log_channel_id=EXCLUDED.ticket_log_channel_id,moderation_log_channel_id=EXCLUDED.moderation_log_channel_id,transcript_channel_id=EXCLUDED.transcript_channel_id,transcript_log_channel_id=EXCLUDED.transcript_log_channel_id,default_ticket_limit=EXCLUDED.default_ticket_limit,updated_at=NOW() RETURNING *",
+    "INSERT INTO guild_ticket_settings (guild_id,open_category_id,ticket_category_id,backup_category_id,waiting_category_id,closed_category_id,log_channel_id,ticket_log_channel_id,moderation_log_channel_id,transcript_channel_id,transcript_log_channel_id,ticket_logs_enabled,moderation_logs_enabled,transcript_logs_enabled,default_ticket_limit,updated_at) " +
+    "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW()) " +
+    "ON CONFLICT (guild_id) DO UPDATE SET open_category_id=EXCLUDED.open_category_id,ticket_category_id=EXCLUDED.ticket_category_id,backup_category_id=EXCLUDED.backup_category_id,waiting_category_id=EXCLUDED.waiting_category_id,closed_category_id=EXCLUDED.closed_category_id,log_channel_id=EXCLUDED.log_channel_id,ticket_log_channel_id=EXCLUDED.ticket_log_channel_id,moderation_log_channel_id=EXCLUDED.moderation_log_channel_id,transcript_channel_id=EXCLUDED.transcript_channel_id,transcript_log_channel_id=EXCLUDED.transcript_log_channel_id,ticket_logs_enabled=EXCLUDED.ticket_logs_enabled,moderation_logs_enabled=EXCLUDED.moderation_logs_enabled,transcript_logs_enabled=EXCLUDED.transcript_logs_enabled,default_ticket_limit=EXCLUDED.default_ticket_limit,updated_at=NOW() RETURNING *",
     [
       guildId,
       next.open_category_id,
