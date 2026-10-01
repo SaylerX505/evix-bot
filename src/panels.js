@@ -28,7 +28,10 @@ export function clonePanel(panel) {
 export function beginPanelStudio(interaction, panel) {
   const draft = clonePanel(panel);
   panelDrafts.set(key(interaction.guildId, interaction.user.id, panel.id), draft);
-  return interaction.reply(buildPanelStudioPayload(draft, interaction.client.user));
+  return interaction.reply({
+    ...buildPanelStudioPayload(draft, interaction.client.user),
+    flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+  });
 }
 
 export function getPanelDraft(guildId, userId, panelId) {
