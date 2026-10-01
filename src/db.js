@@ -285,57 +285,91 @@ export async function getGuildSettings(guildId) {
 }
 
 export async function upsertGuildSettings(guildId, patch) {
-  const current = (await getGuildSettings(guildId)) ?? {
-    guild_id: guildId,
-    open_category_id: null,
-    ticket_category_id: null,
-    backup_category_id: null,
-    waiting_category_id: null,
-    closed_category_id: null,
-    log_channel_id: null,
-    ticket_log_channel_id: null,
-    moderation_log_channel_id: null,
-    transcript_channel_id: null,
-    transcript_log_channel_id: null,
-    ticket_logs_enabled: true,
-    moderation_logs_enabled: true,
-    transcript_logs_enabled: true,
-    default_ticket_limit: 1,
-  };
-
-  const next = { ...current, ...patch };
-  next.ticket_category_id = next.ticket_category_id ?? next.open_category_id ?? null;
-  next.open_category_id = next.ticket_category_id;
-  next.ticket_log_channel_id = next.ticket_log_channel_id ?? next.log_channel_id ?? null;
-  next.log_channel_id = next.ticket_log_channel_id;
-  next.transcript_log_channel_id = next.transcript_log_channel_id ?? next.transcript_channel_id ?? null;
-  next.transcript_channel_id = next.transcript_log_channel_id;
-
-  const { rows } = await query(
-    "INSERT INTO guild_ticket_settings (guild_id,open_category_id,ticket_category_id,backup_category_id,waiting_category_id,closed_category_id,log_channel_id,ticket_log_channel_id,moderation_log_channel_id,transcript_channel_id,transcript_log_channel_id,ticket_logs_enabled,moderation_logs_enabled,transcript_logs_enabled,default_ticket_limit,updated_at) " +
-    "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW()) " +
-    "ON CONFLICT (guild_id) DO UPDATE SET open_category_id=EXCLUDED.open_category_id,ticket_category_id=EXCLUDED.ticket_category_id,backup_category_id=EXCLUDED.backup_category_id,waiting_category_id=EXCLUDED.waiting_category_id,closed_category_id=EXCLUDED.closed_category_id,log_channel_id=EXCLUDED.log_channel_id,ticket_log_channel_id=EXCLUDED.ticket_log_channel_id,moderation_log_channel_id=EXCLUDED.moderation_log_channel_id,transcript_channel_id=EXCLUDED.transcript_channel_id,transcript_log_channel_id=EXCLUDED.transcript_log_channel_id,ticket_logs_enabled=EXCLUDED.ticket_logs_enabled,moderation_logs_enabled=EXCLUDED.moderation_logs_enabled,transcript_logs_enabled=EXCLUDED.transcript_logs_enabled,default_ticket_limit=EXCLUDED.default_ticket_limit,updated_at=NOW() RETURNING *",
-    [
-      guildId,
-      next.open_category_id,
-      next.ticket_category_id,
-      next.backup_category_id ?? null,
-      next.waiting_category_id ?? null,
-      next.closed_category_id ?? null,
-      next.log_channel_id ?? null,
-      next.ticket_log_channel_id ?? null,
-      next.moderation_log_channel_id ?? null,
-      next.transcript_channel_id ?? null,
-      next.transcript_log_channel_id ?? null,
-      next.ticket_logs_enabled !== false,
-      next.moderation_logs_enabled !== false,
-      next.transcript_logs_enabled !== false,
-      next.default_ticket_limit ?? 1,
-    ],
+  const allowed = new Set([
+    "open_category_id","ticket_category_id","backup_category_id","waiting_category_id","closed_category_id",
+    "log_channel_id","ticket_log_channel_id","moderation_log_channel_id","transcript_channel_id","transcript_log_channel_id",
+    "ticket_logs_enabled","moderation_logs_enabled","transcript_logs_enabled","default_ticket_limit",
+  ]);
+  const requested = Object.fromEntries(
+    Object.entries(patch ?? {}).filter(([key, value]) => allowed.has(key) && value !== undefined),
   );
-  return rows[0];
-}
 
+  if (Object.hasOwn(requested, "ticket_category_id") && !Object.hasOwn(requested, "open_category_id")) {
+    requested.open_category_id = requested.ticket_category_id;
+  } else if (Object.hasOwn(requested, "open_category_id") && !Object.hasOwn(requested, "ticket_category_id")) {
+    requested.ticket_category_id = requested.open_category_id;
+  }
+
+  if (Object.hasOwn(requested, "ticket_log_channel_id") && !Object.hasOwn(requested, "log_channel_id")) {
+    requested.log_channel_id = requested.ticket_log_channel_id;
+  } else if (Object.hasOwn(requested, "log_channel_id") && !Object.hasOwn(requested, "ticket_log_channel_id")) {
+    requested.ticket_log_channel_id = requested.log_channel_id;
+  }
+
+  if (Object.hasOwn(requested, "transcript_log_channel_id") && !Object.hasOwn(requested, "transcript_channel_id")) {
+    requested.transcript_channel_id = requested.transcript_log_channel_id;
+  } else if (Object.hasOwn(requested, "transcript_channel_id") && !Object.hasOwn(requested, "transcript_log_channel_id")) {
+    requested.transcript_log_channel_id = requested.transcript_channel_id;
+  }
+
+  return withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["guild-settings:" + guildId]);
+
+    const { rows: currentRows } = await client.query(
+      "SELECT * FROM guild_ticket_settings WHERE guild_id=$1",
+      [guildId],
+    );
+    const current = currentRows[0] ?? {
+      guild_id: guildId,
+      open_category_id: null,
+      ticket_category_id: null,
+      backup_category_id: null,
+      waiting_category_id: null,
+      closed_category_id: null,
+      log_channel_id: null,
+      ticket_log_channel_id: null,
+      moderation_log_channel_id: null,
+      transcript_channel_id: null,
+      transcript_log_channel_id: null,
+      ticket_logs_enabled: true,
+      moderation_logs_enabled: true,
+      transcript_logs_enabled: true,
+      default_ticket_limit: 1,
+    };
+
+    const next = { ...current, ...requested };
+    next.ticket_category_id = next.ticket_category_id ?? next.open_category_id ?? null;
+    next.open_category_id = next.ticket_category_id;
+    next.ticket_log_channel_id = next.ticket_log_channel_id ?? next.log_channel_id ?? null;
+    next.log_channel_id = next.ticket_log_channel_id;
+    next.transcript_log_channel_id = next.transcript_log_channel_id ?? next.transcript_channel_id ?? null;
+    next.transcript_channel_id = next.transcript_log_channel_id;
+
+    const { rows } = await client.query(
+      "INSERT INTO guild_ticket_settings (guild_id,open_category_id,ticket_category_id,backup_category_id,waiting_category_id,closed_category_id,log_channel_id,ticket_log_channel_id,moderation_log_channel_id,transcript_channel_id,transcript_log_channel_id,ticket_logs_enabled,moderation_logs_enabled,transcript_logs_enabled,default_ticket_limit,updated_at) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW()) " +
+      "ON CONFLICT (guild_id) DO UPDATE SET open_category_id=EXCLUDED.open_category_id,ticket_category_id=EXCLUDED.ticket_category_id,backup_category_id=EXCLUDED.backup_category_id,waiting_category_id=EXCLUDED.waiting_category_id,closed_category_id=EXCLUDED.closed_category_id,log_channel_id=EXCLUDED.log_channel_id,ticket_log_channel_id=EXCLUDED.ticket_log_channel_id,moderation_log_channel_id=EXCLUDED.moderation_log_channel_id,transcript_channel_id=EXCLUDED.transcript_channel_id,transcript_log_channel_id=EXCLUDED.transcript_log_channel_id,ticket_logs_enabled=EXCLUDED.ticket_logs_enabled,moderation_logs_enabled=EXCLUDED.moderation_logs_enabled,transcript_logs_enabled=EXCLUDED.transcript_logs_enabled,default_ticket_limit=EXCLUDED.default_ticket_limit,updated_at=NOW() RETURNING *",
+      [
+        guildId,
+        next.open_category_id,
+        next.ticket_category_id,
+        next.backup_category_id ?? null,
+        next.waiting_category_id ?? null,
+        next.closed_category_id ?? null,
+        next.log_channel_id ?? null,
+        next.ticket_log_channel_id ?? null,
+        next.moderation_log_channel_id ?? null,
+        next.transcript_channel_id ?? null,
+        next.transcript_log_channel_id ?? null,
+        next.ticket_logs_enabled !== false,
+        next.moderation_logs_enabled !== false,
+        next.transcript_logs_enabled !== false,
+        next.default_ticket_limit ?? 1,
+      ],
+    );
+    return rows[0];
+  });
+}
 export async function createPanel(data) {
   return withTransaction(async (client) => {
     const { rows } = await client.query(
