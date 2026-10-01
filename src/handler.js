@@ -159,7 +159,9 @@ export async function handleInteraction(interaction, { service, ui }) {
       if (!match) throw new Error("Invalid rename form.");
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const ticket = await service.getTicket(interaction, match[1]);
-      await service.rename(interaction, ticket, interaction.fields.getTextInputValue("name"));
+      await service.withTicketActionLock(ticket.id, () =>
+        service.rename(interaction, ticket, interaction.fields.getTextInputValue("name")),
+      );
       return;
     }
 
@@ -185,7 +187,9 @@ export async function handleInteraction(interaction, { service, ui }) {
 
       try {
         if (action === "close") {
-          await service.close(interaction, ticket, { reply: false, closedBy: interaction.user.id });
+          await service.withTicketActionLock(ticket.id, () =>
+            service.close(interaction, ticket, { reply: false, closedBy: interaction.user.id }),
+          );
           await interaction.followUp({
             ...buildActionResult("Ticket Closed", "This ticket has been closed by <@" + interaction.user.id + ">."),
             flags: MessageFlags.Ephemeral,
@@ -193,7 +197,7 @@ export async function handleInteraction(interaction, { service, ui }) {
           return;
         }
 
-        await service.delete(interaction, ticket);
+        await service.withTicketActionLock(ticket.id, () => service.delete(interaction, ticket));
         await interaction.followUp({
           ...buildActionResult("Ticket Deleted", "This ticket has been permanently deleted."),
           flags: MessageFlags.Ephemeral,
@@ -228,11 +232,12 @@ export async function handleInteraction(interaction, { service, ui }) {
       if (action === "delete") return service.requestDelete(interaction, ticket);
       if (action === "info") return service.info(interaction, ticket);
 
+      const mutate = (callback) => service.withTicketActionLock(ticket.id, callback);
       switch (action) {
-        case "claim": return service.claim(interaction, ticket);
-        case "unclaim": return service.unclaim(interaction, ticket);
-        case "waiting": return service.waiting(interaction, ticket);
-        case "reopen": return service.reopen(interaction, ticket);
+        case "claim": return mutate(() => service.claim(interaction, ticket));
+        case "unclaim": return mutate(() => service.unclaim(interaction, ticket));
+        case "waiting": return mutate(() => service.waiting(interaction, ticket));
+        case "reopen": return mutate(() => service.reopen(interaction, ticket));
         case "transcript": return service.sendTranscript(interaction, ticket);
         default: throw new Error("Unsupported ticket control.");
       }
