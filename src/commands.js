@@ -229,9 +229,12 @@ export async function handleTicketCommand(interaction, service, ui) {
     const saved = await upsertGuildSettings(interaction.guildId, {
       ticket_log_channel_id: disableTicket ? null : (ticketChannel?.id ?? current.ticket_log_channel_id ?? current.log_channel_id ?? null),
       moderation_log_channel_id: disableModeration ? null : (moderationChannel?.id ?? current.moderation_log_channel_id ?? null),
-      transcript_log_channel_id: disableTranscript ? null : (transcriptChannel?.id ?? current.transcript_log_channel_id ?? current.transcript_channel_id ?? null),
-      log_channel_id: disableTicket ? null : (ticketChannel?.id ?? current.log_channel_id ?? current.ticket_log_channel_id ?? null),
-      transcript_channel_id: disableTranscript ? null : (transcriptChannel?.id ?? current.transcript_channel_id ?? current.transcript_log_channel_id ?? null),
+      transcript_log_channel_id: disableTranscript ? (current.transcript_log_channel_id ?? current.transcript_channel_id ?? null) : (transcriptChannel?.id ?? current.transcript_log_channel_id ?? current.transcript_channel_id ?? null),
+      ticket_logs_enabled: disableTicket ? false : (ticketChannel ? true : (current.ticket_logs_enabled !== false)),
+      moderation_logs_enabled: disableModeration ? false : (moderationChannel ? true : (current.moderation_logs_enabled !== false)),
+      transcript_logs_enabled: disableTranscript ? false : (transcriptChannel ? true : (current.transcript_logs_enabled !== false)),
+      log_channel_id: disableTicket ? (current.log_channel_id ?? current.ticket_log_channel_id ?? null) : (ticketChannel?.id ?? current.log_channel_id ?? current.ticket_log_channel_id ?? null),
+      transcript_channel_id: disableTranscript ? (current.transcript_channel_id ?? current.transcript_log_channel_id ?? null) : (transcriptChannel?.id ?? current.transcript_channel_id ?? current.transcript_log_channel_id ?? null),
     });
 
     return interaction.reply(ephemeral(
