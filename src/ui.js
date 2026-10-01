@@ -60,7 +60,6 @@ function ticketControls(ticket) {
     controls.push(new ButtonBuilder().setCustomId("evix:t:" + ticket.id + ":claim").setLabel("Claim").setStyle(ButtonStyle.Secondary));
   }
   if (ticket.status !== "closed") {
-    controls.push(new ButtonBuilder().setCustomId("evix:t:" + ticket.id + ":waiting").setLabel(ticket.status === "waiting" ? "Resume" : "Waiting").setStyle(ButtonStyle.Secondary));
     controls.push(new ButtonBuilder().setCustomId("evix:t:" + ticket.id + ":close").setLabel("Close Ticket").setStyle(ButtonStyle.Danger));
   }
   controls.push(new ButtonBuilder().setCustomId("evix:t:" + ticket.id + ":info").setLabel("Info").setStyle(ButtonStyle.Secondary));
@@ -227,7 +226,6 @@ export function buildSetupSummary(settings) {
   const lines = [
     "**Tickets category:** " + (settings?.ticket_category_id || settings?.open_category_id ? "<#" + (settings.ticket_category_id || settings.open_category_id) + ">" : "Not configured"),
     "**Backup tickets category:** " + (settings?.backup_category_id ? "<#" + settings.backup_category_id + ">" : "Not configured"),
-    "**Waiting category:** " + (settings?.waiting_category_id ? "<#" + settings.waiting_category_id + ">" : "Not configured"),
     "**Closed tickets category:** " + (settings?.closed_category_id ? "<#" + settings.closed_category_id + ">" : "Not configured"),
     "**Ticket logs:** " + (settings?.ticket_logs_enabled === false || !(settings?.ticket_log_channel_id || settings?.log_channel_id) ? "off" : "<#" + (settings.ticket_log_channel_id || settings.log_channel_id) + ">"),
     "**Moderation logs:** " + (settings?.moderation_logs_enabled === false ? "off" : (settings?.moderation_log_channel_id ? "<#" + settings.moderation_log_channel_id + ">" : ((settings?.ticket_logs_enabled !== false && (settings?.ticket_log_channel_id || settings?.log_channel_id)) ? "fallback → <#" + (settings.ticket_log_channel_id || settings.log_channel_id) + ">" : "off"))),

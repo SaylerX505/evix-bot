@@ -82,8 +82,6 @@ function delayedService(ticket) {
   service.info = async (interaction) => { await interaction.editReply({ ok: "info" }); };
   service.claim = async (interaction) => { service.calls.push("claim"); await interaction.editReply({ ok: "claim" }); };
   service.unclaim = async (interaction) => { service.calls.push("unclaim"); await interaction.editReply({ ok: "unclaim" }); };
-  service.waiting = async (interaction) => { service.calls.push("waiting"); await interaction.editReply({ ok: "waiting" }); };
-  service.resume = async (interaction) => { service.calls.push("resume"); await interaction.editReply({ ok: "resume" }); };
   service.reopen = async (interaction) => { service.calls.push("reopen"); await interaction.editReply({ ok: "reopen" }); };
   service.sendTranscript = async (interaction) => { service.calls.push("transcript"); await interaction.editReply({ ok: "transcript" }); };
   return service;
@@ -101,7 +99,7 @@ function makeTicketButton(customId) {
 }
 
 test("ticket control buttons acknowledge before slow work", async () => {
-  const actions = ["claim", "unclaim", "waiting", "close", "reopen", "transcript", "delete", "info"];
+  const actions = ["claim", "unclaim", "close", "reopen", "transcript", "delete", "info"];
   for (const action of actions) {
     const interaction = makeTicketButton("evix:t:42:" + action);
     const service = delayedService({
@@ -113,76 +111,10 @@ test("ticket control buttons acknowledge before slow work", async () => {
     });
     service.canManageTicket = () => true;
     await handleInteraction(interaction, { service, ui: {} });
-    assert.equal(interaction.calls[0], action === "waiting" ? "deferUpdate" : "deferReply", action);
+    assert.equal(interaction.calls[0], "deferReply", action);
   }
 });
 
-
-test("waiting button failures are reported ephemerally without replacing the public control", async () => {
-  const interaction = makeTicketButton("evix:t:42:waiting");
-  const service = delayedService({
-    id: 42,
-    owner_id: "different",
-    status: "waiting",
-    staff_roles: [],
-  });
-  service.canManageTicket = () => true;
-  service.resume = async () => { throw new Error("resume failed"); };
-
-  await handleInteraction(interaction, { service, ui: {} });
-
-  assert.deepEqual(interaction.calls, ["deferUpdate", "followUp"]);
-  assert.equal(interaction.calls.includes("editReply"), false);
-});
-
-test("waiting button updates the public control while slash waiting keeps its reply path", async () => {
-  const button = makeTicketButton("evix:t:42:waiting");
-  const buttonService = delayedService({
-    id: 42,
-    owner_id: "different",
-    status: "open",
-    staff_roles: [],
-  });
-  buttonService.canManageTicket = () => true;
-  await handleInteraction(button, { service: buttonService, ui: {} });
-  assert.deepEqual(buttonService.calls, ["waiting"]);
-  assert.equal(button.calls[0], "deferUpdate");
-
-  const slashCalls = [];
-  const slash = {
-    guildId: "guild",
-    channelId: "channel",
-    user: { id: "owner" },
-    member: { id: "staff" },
-    memberPermissions: { has: () => true },
-    deferred: true,
-    replied: false,
-    calls: slashCalls,
-    isButton: () => false,
-    editReply: async () => { slashCalls.push("editReply"); },
-  };
-  await buttonService.waiting(slash, {
-    id: 42,
-    owner_id: "different",
-    status: "open",
-    ticket_key: "EVX-000042",
-    staff_roles: [],
-  }).catch(() => null);
-});
-
-test("resume control dispatches to resume instead of waiting", async () => {
-  const interaction = makeTicketButton("evix:t:42:waiting");
-  const service = delayedService({
-    id: 42,
-    owner_id: "different",
-    status: "waiting",
-    staff_roles: [],
-  });
-  service.canManageTicket = () => true;
-  await handleInteraction(interaction, { service, ui: {} });
-  assert.deepEqual(service.calls, ["resume"]);
-  assert.equal(interaction.calls[0], "deferUpdate");
-});
 
 test("delete control keeps its confirmation ephemeral and does not update the public ticket message", async () => {
   const interaction = makeTicketButton("evix:t:42:delete");

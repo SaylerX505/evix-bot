@@ -91,7 +91,7 @@ Evix uses Discord Components V2 with Containers, Text Displays, Separators, Butt
 
 ## Safety and lifecycle
 
-Delete actions use a confirmation step. Ticket control messages are refreshed after claim, waiting/resume, close, and reopen actions. The global per-member open-ticket limit remains enforced even when a ticket type allows multiple tickets of that type.
+Delete actions use a confirmation step. Ticket control messages are refreshed after claim, close, and reopen actions. The global per-member open-ticket limit remains enforced even when a ticket type allows multiple tickets of that type.
 
 ## Release
 
