@@ -142,11 +142,12 @@ test("isolated PostgreSQL chaos audit: transactions, concurrency, failure recove
   }
 
   const poolKiller = new pg.Pool({ connectionString: DATABASE_URL, max: 4 });
+  let pool;
   await initDatabase(DATABASE_URL);
+  pool = getPool();
   await resetSchema();
 
   try {
-    const pool = getPool();
     const seed = 0xE51A505;
 
     assert.equal((await pool.query("SELECT 1 AS ok")).rows[0].ok, 1);
