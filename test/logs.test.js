@@ -40,7 +40,7 @@ test("ticket audit logs only expose Open, Claimed, Closed, Deleted, and Transcri
     assert.equal(await writeTicketLog(guild, ticket, event, "user"), true, event);
   }
 
-  const rendered = guild.sent.map((payload) => JSON.stringify(payload.components));
+  const rendered = guild.sent.map((payload) => JSON.stringify(payload.components.map((component) => component.toJSON())));
   assert.equal(rendered.some((value) => value.includes("# Open")), true);
   assert.equal(rendered.some((value) => value.includes("# Claimed")), true);
   assert.equal(rendered.some((value) => value.includes("# Closed")), true);
