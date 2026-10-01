@@ -101,3 +101,41 @@ test("ticket info is a Components V2 container", () => {
   assert.equal(json.includes("EVX-000042"), true);
   assert.equal(json.includes("Waiting"), true);
 });
+
+
+test("open ticket controls expose only the valid active-ticket actions", () => {
+  const payload = buildTicketView({
+    id: 42, ticket_key: "EVX-000042", type_label: "Support", owner_id: "123456",
+    claimed_by: null, status: "open",
+  }, { welcome_message: "Welcome" });
+  const json = JSON.stringify(containerJson(payload));
+  assert.match(json, /evix:t:42:claim/);
+  assert.match(json, /evix:t:42:waiting/);
+  assert.match(json, /evix:t:42:close/);
+  assert.match(json, /evix:t:42:info/);
+  assert.doesNotMatch(json, /evix:t:42:(reopen|transcript|delete)/);
+});
+
+test("waiting ticket exposes Resume and does not expose Claim", () => {
+  const payload = buildTicketView({
+    id: 42, ticket_key: "EVX-000042", type_label: "Support", owner_id: "123456",
+    claimed_by: null, status: "waiting",
+  }, { welcome_message: "Waiting" });
+  const json = JSON.stringify(containerJson(payload));
+  assert.match(json, /evix:t:42:waiting/);
+  assert.match(json, /"Resume"/);
+  assert.doesNotMatch(json, /evix:t:42:claim/);
+  assert.match(json, /evix:t:42:close/);
+  assert.match(json, /evix:t:42:info/);
+});
+
+test("closed ticket replaces active controls with only transcript, reopen and delete", () => {
+  const payload = buildClosedTicketView({
+    id: 42, ticket_key: "EVX-000042", closed_by: "999999",
+  });
+  const json = JSON.stringify(containerJson(payload));
+  assert.match(json, /evix:t:42:transcript/);
+  assert.match(json, /evix:t:42:reopen/);
+  assert.match(json, /evix:t:42:delete/);
+  assert.doesNotMatch(json, /evix:t:42:(claim|unclaim|waiting|close|info)/);
+});
