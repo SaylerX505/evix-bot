@@ -1,6 +1,6 @@
 {
   "name": "evix-bot",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Evix Discord ticket system",
   "private": true,
   "type": "module",

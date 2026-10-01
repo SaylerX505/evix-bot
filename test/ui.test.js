@@ -1,68 +1,86 @@
-
 import test from "node:test";
 import assert from "node:assert/strict";
 import { MessageFlags } from "discord.js";
 import { buildDeleteConfirmation, buildPanelMessage, buildTicketView } from "../src/ui.js";
 
-function option(id, component_kind) {
+function option(id, extra = {}) {
   return {
     id,
     panel_id: 1,
-    component_kind,
-    label: `Option ${id}`,
-    description: component_kind === "dropdown" ? "Ticket option" : null,
-    emoji: null,
-    action: "NOTHING",
-    button_style: 2,
+    label: "Option " + id,
+    description: extra.description ?? null,
+    emoji: extra.emoji ?? null,
+    action: "CREATE_TICKET",
   };
 }
 
-test("panel messages use Components V2 and suppress implicit mentions", () => {
+function containerJson(payload) {
+  return payload.components[0].toJSON();
+}
+
+test("ticket panels are dropdown-only Components V2 containers", () => {
   const payload = buildPanelMessage({
     id: 1,
-    component_mode: "both",
-    options: [option(1, "button"), option(2, "dropdown")],
+    options: [option(1, { description: "Get support", emoji: "🎟️" })],
   });
 
   assert.equal(payload.flags, MessageFlags.IsComponentsV2);
   assert.deepEqual(payload.allowedMentions, { parse: [] });
-  assert.ok(Array.isArray(payload.components));
+
+  const container = containerJson(payload);
+  assert.equal(container.type, 17);
+  const rows = container.components.filter((component) => component.type === 1);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].components[0].type, 3);
+  assert.equal(rows[0].components[0].options.length, 1);
 });
 
-test("panel layout enforces the five action-row limit", () => {
-  const buttons = Array.from({ length: 15 }, (_, i) => option(i + 1, "button"));
-  const dropdowns = Array.from({ length: 10 }, (_, i) => option(i + 16, "dropdown"));
-
+test("panel content is optional and the dropdown remains valid", () => {
   assert.doesNotThrow(() => buildPanelMessage({
     id: 1,
-    component_mode: "both",
-    options: [...buttons, ...dropdowns],
+    title: "",
+    description: "",
+    image_url: null,
+    footer: "",
+    footer_show_bot: false,
+    options: [option(1)],
   }));
-
-  assert.doesNotThrow(() => buildPanelMessage({
-    id: 1,
-    component_mode: "both",
-    options: [
-      ...Array.from({ length: 20 }, (_, i) => option(i + 1, "button")),
-      ...Array.from({ length: 5 }, (_, i) => option(i + 21, "dropdown")),
-    ],
-  }));
-
-  assert.throws(() => buildPanelMessage({
-    id: 1,
-    component_mode: "buttons",
-    options: Array.from({ length: 21 }, (_, i) => option(i + 1, "button")),
-  }), /at most 20 buttons/);
 });
 
-test("ticket and delete-confirmation views stay in Components V2", () => {
+test("panel preview disables ticket creation", () => {
+  const payload = buildPanelMessage({ id: 1, options: [option(1)] }, null, { preview: true });
+  const select = containerJson(payload).components.find((component) => component.type === 1).components[0];
+  assert.equal(select.disabled, true);
+});
+
+test("panel can render optional image and bot footer", () => {
+  const payload = buildPanelMessage({
+    id: 1,
+    title: "",
+    description: "Choose a ticket type.",
+    image_url: "https://example.com/panel.png",
+    footer: "Support Center",
+    footer_show_bot: true,
+    options: [option(1)],
+  }, {
+    username: "Evix",
+    displayAvatarURL: () => "https://example.com/avatar.png",
+  });
+
+  const components = containerJson(payload).components;
+  assert.ok(components.some((component) => component.type === 12));
+  assert.ok(components.some((component) => component.type === 10));
+  assert.ok(components.some((component) => component.type === 9));
+});
+
+test("ticket, waiting, and delete views stay in Components V2", () => {
   const ticket = {
     id: 42,
-    ticket_key: "EV-0042",
+    ticket_key: "EVX-000042",
     type_label: "Support",
     owner_id: "123456",
     claimed_by: null,
-    status: "open",
+    status: "waiting",
   };
 
   assert.equal(buildTicketView(ticket, { welcome_message: "Welcome" }).flags, MessageFlags.IsComponentsV2);

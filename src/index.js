@@ -15,7 +15,7 @@ async function main() {
 
   const service = new TicketService(client);
 
-  client.once("ready", () => {
+  client.once("clientReady", () => {
     console.log(`[evix] logged in as ${client.user.tag}`);
     console.log(`[evix] guilds: ${client.guilds.cache.size}`);
   });
