@@ -127,7 +127,7 @@ export class TicketService {
         moderationLogChannelId: option.moderation_log_channel_id || settings.moderation_log_channel_id,
         transcriptChannelId: option.transcript_channel_id || settings.transcript_log_channel_id || settings.transcript_channel_id,
         ticketLogsEnabled: settings.ticket_logs_enabled !== false, moderationLogsEnabled: settings.moderation_logs_enabled !== false, transcriptLogsEnabled: settings.transcript_logs_enabled !== false,
-        ticketLimit: limit, welcomeMessage: storedWelcome, closeBehavior: option.close_behavior || "move", transcriptOnClose: option.transcript_on_close !== false,
+        ticketLimit: limit, welcomeMessage: storedWelcome, closeBehavior: option.close_behavior || "move", transcriptOnClose: false,
       });
     } catch (error) {
       await channel.delete("Evix ticket creation compensation").catch(() => null);
@@ -457,33 +457,15 @@ export class TicketService {
     }
 
     const finishSideEffects = async () => {
-      let finalTicket = next;
-      let transcriptUrl = finalTicket.transcript_url || null;
-
-      if (finalTicket.transcript_on_close !== false && !transcriptUrl) {
-        try {
-          transcriptUrl = await this.createTranscript(interaction, finalTicket, true);
-          if (transcriptUrl) {
-            finalTicket = await updateTicket(finalTicket.id, { transcript_url: transcriptUrl }, { statuses: ["closed"] }) ?? {
-              ...finalTicket,
-              transcript_url: transcriptUrl,
-            };
-          }
-        } catch (error) {
-          console.error("[evix-close-transcript-error]", error);
-        }
-      }
-
-      await addTicketEvent(finalTicket.id, "TICKET_CLOSED", interaction.user.id, {
+      await addTicketEvent(next.id, "TICKET_CLOSED", interaction.user.id, {
         duration: formatDuration(ticket.created_at),
-        transcript: transcriptUrl || "not created",
         category: currentCategoryId,
       }).catch((error) => console.error("[evix-close-event-error]", error));
-      await writeTicketLog(interaction.guild, finalTicket, "TICKET_CLOSED", interaction.user.id, {
-        transcript: transcriptUrl || "not created",
+      await writeTicketLog(interaction.guild, next, "TICKET_CLOSED", interaction.user.id, {
+        duration: formatDuration(ticket.created_at),
         category: currentCategoryId,
       }).catch((error) => console.error("[evix-close-log-error]", error));
-      return finalTicket;
+      return next;
     };
 
     if (backgroundSideEffects) {
@@ -659,21 +641,6 @@ export class TicketService {
       .catch((error) => console.error("[evix-ticket-delete-event-error]", error));
     void writeTicketLog(interaction.guild, deleted, "TICKET_DELETED", interaction.user.id)
       .catch((error) => console.error("[evix-ticket-delete-log-error]", error));
-  }
-
-  async createTranscript(interaction, ticket, silent = false) {
-    if (ticket.transcript_logs_enabled === false) return null;
-    const transcript = await buildTranscript(interaction.channel, ticket);
-    const destinationId = ticket.transcript_log_channel_id || ticket.transcript_channel_id;
-    if (!destinationId) { if (!silent) await interaction.followUp(buildActionResult("Transcript Unavailable", "Transcript logging is not configured.", 0xed4245)).catch(() => null); return null; }
-    const destination = await interaction.guild.channels.fetch(destinationId).catch(() => null);
-    if (!destination?.isTextBased?.()) { if (!silent) await interaction.followUp(buildActionResult("Transcript Unavailable", "The configured transcript channel is unavailable.", 0xed4245)).catch(() => null); return null; }
-    const message = await destination.send({ content: "Transcript — " + ticket.ticket_key + " · " + transcript.messageCount + " messages", files: [transcriptAttachment(transcript.buffer, transcript.fileName)], allowedMentions: { parse: [] } });
-    void addTicketEvent(ticket.id, "TRANSCRIPT_CREATED", null, { messages: transcript.messageCount, channel: destination.id })
-      .catch((error) => console.error("[evix-transcript-event-error]", error));
-    void writeTicketLog(interaction.guild, ticket, "TRANSCRIPT_CREATED", null, { messages: transcript.messageCount, channel: destination.id })
-      .catch((error) => console.error("[evix-transcript-log-error]", error));
-    return message.url;
   }
 
   async sendTranscript(interaction, ticket) {

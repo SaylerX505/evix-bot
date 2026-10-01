@@ -1,17 +1,16 @@
 import { ContainerBuilder, MessageFlags, SectionBuilder, SeparatorBuilder, SeparatorSpacingSize, TextDisplayBuilder, ThumbnailBuilder } from "discord.js";
 import { truncate } from "./utils.js";
 
-const MODERATION_EVENTS = new Set([
-  "TICKET_DELETED",
-  "MEMBER_ADDED",
-  "MEMBER_REMOVED",
-  "TICKET_LOCKED",
-  "TICKET_UNLOCKED",
+const LOG_EVENT_LABELS = new Map([
+  ["TICKET_CREATED", "Open"],
+  ["TICKET_CLAIMED", "Claimed"],
+  ["TICKET_CLOSED", "Closed"],
+  ["TICKET_DELETED", "Deleted"],
+  ["TRANSCRIPT_CREATED", "Transcript"],
 ]);
 
 function routeFor(eventType) {
   if (eventType === "TRANSCRIPT_CREATED") return "transcript";
-  if (MODERATION_EVENTS.has(eventType)) return "moderation";
   return "ticket";
 }
 
@@ -50,6 +49,9 @@ function footer(guild) {
 
 export async function writeTicketLog(guild, ticket, eventType, actorId, details = {}) {
   try {
+    const label = LOG_EVENT_LABELS.get(eventType);
+    if (!label) return false;
+
     const route = routeFor(eventType);
     if (route === "ticket" && ticket.ticket_logs_enabled === false) return false;
     if (route === "moderation" && ticket.moderation_logs_enabled === false) return false;
@@ -61,7 +63,7 @@ export async function writeTicketLog(guild, ticket, eventType, actorId, details 
     if (!channel?.isTextBased?.()) return false;
 
     const lines = [
-      "# " + eventType.replaceAll("_", " "),
+      "# " + label,
       "**Ticket ID:** " + truncate(ticket.ticket_key, 100),
       "**Type:** " + truncate(ticket.type_label, 100),
       "**Channel:** <#" + ticket.channel_id + ">",
