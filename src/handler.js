@@ -41,7 +41,7 @@ export async function handleInteraction(interaction, { service, ui }) {
         const sub = interaction.options.getSubcommand();
         if (["setup", "config", "logs", "close", "delete", "transcript"].includes(sub)) {
           await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        } else if (["info", "claim", "unclaim", "waiting", "reopen", "add", "remove", "rename"].includes(sub)) {
+        } else if (["info", "claim", "unclaim", "reopen", "add", "remove", "rename"].includes(sub)) {
           await interaction.deferReply();
         }
         await handleTicketCommand(interaction, service, ui);
@@ -218,15 +218,11 @@ export async function handleInteraction(interaction, { service, ui }) {
     }
 
     if (interaction.isButton() && interaction.customId.startsWith("evix:t:")) {
-      const match = interaction.customId.match(/^evix:t:(\d+):(claim|unclaim|close|reopen|transcript|delete|info|waiting)$/);
+      const match = interaction.customId.match(/^evix:t:(\d+):(claim|unclaim|close|reopen|transcript|delete|info)$/);
       if (!match) throw new Error("Invalid ticket control.");
       const [, ticketId, action] = match;
 
-      // Resume updates the public ticket control message itself, so acknowledge it as
-      // a component update. The lookup still happens only after the immediate ACK.
-      if (action === "waiting") {
-        await interaction.deferUpdate();
-      } else {
+      {
         const ephemeralActions = new Set(["close", "delete", "transcript"]);
         await interaction.deferReply({
           flags: ephemeralActions.has(action) ? MessageFlags.Ephemeral : 0,
@@ -245,10 +241,6 @@ export async function handleInteraction(interaction, { service, ui }) {
       switch (action) {
         case "claim": return await mutate(() => service.claim(interaction, ticket));
         case "unclaim": return await mutate(() => service.unclaim(interaction, ticket));
-        case "waiting":
-          return await mutate(() => ticket.status === "waiting"
-            ? service.resume(interaction, ticket)
-            : service.waiting(interaction, ticket));
         case "reopen": return await mutate(() => service.reopen(interaction, ticket));
         case "transcript": return await service.sendTranscript(interaction, ticket);
         default: throw new Error("Unsupported ticket control.");
@@ -261,15 +253,6 @@ export async function handleInteraction(interaction, { service, ui }) {
     logInteractionError(interaction, normalized, error);
     if (interaction.isAutocomplete()) {
       await interaction.respond([]).catch(() => null);
-      return;
-    }
-    const publicTicketStateButton = interaction.isButton?.()
-      && /^evix:t:\d+:waiting$/.test(interaction.customId || "");
-    if (publicTicketStateButton && (interaction.deferred || interaction.replied)) {
-      await interaction.followUp({
-        ...buildErrorResult(normalized),
-        flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
-      }).catch(() => null);
       return;
     }
     await replySafely(interaction, buildErrorResult(normalized)).catch(() => null);
