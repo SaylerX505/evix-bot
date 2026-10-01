@@ -47,6 +47,9 @@ function footer(guild) {
 export async function writeTicketLog(guild, ticket, eventType, actorId, details = {}) {
   try {
     const route = routeFor(eventType);
+    if (route === "ticket" && ticket.ticket_logs_enabled === false) return false;
+    if (route === "moderation" && ticket.moderation_logs_enabled === false) return false;
+    if (route === "transcript" && ticket.transcript_logs_enabled === false) return false;
     const channelId = channelCandidates(ticket, route).find(Boolean);
     if (!channelId) return false;
 
