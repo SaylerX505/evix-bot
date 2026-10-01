@@ -145,3 +145,50 @@ test("stale close action on an already-closed ticket repairs the public control 
   assert.equal(interaction.replied, true);
   service.refreshControlMessage = originalRefresh;
 });
+
+
+test("replace control mode sends the new ticket state and removes the old control message", async () => {
+  const events = [];
+  const oldMessage = {
+    async edit() { events.push("old-edit"); },
+    async delete(reason) { events.push(["old-delete", reason]); },
+  };
+  const newMessage = {
+    id: "new-control",
+    async delete(reason) { events.push(["new-delete", reason]); },
+  };
+  const channel = {
+    isTextBased: () => true,
+    messages: {
+      fetch: async () => oldMessage,
+    },
+    async send(payload) {
+      events.push(["send", payload]);
+      return newMessage;
+    },
+  };
+  const interaction = {
+    guildId: "guild",
+    guild: { channels: { fetch: async () => channel } },
+  };
+
+  const originalUpdate = (await import("../src/db.js")).updateTicket;
+  const ticket = {
+    id: 45,
+    channel_id: "channel",
+    control_message_id: "old-control",
+    ticket_key: "EVX-000045",
+    owner_id: "owner",
+    type_label: "Support",
+    status: "closed",
+    closed_by: "staff",
+    staff_roles: [],
+  };
+
+  await service.refreshControlMessage(interaction, ticket, { replace: true });
+
+  assert.equal(events.some((entry) => entry === "old-edit"), false);
+  assert.equal(events.some((entry) => Array.isArray(entry) && entry[0] === "send"), true);
+  assert.equal(events.some((entry) => Array.isArray(entry) && entry[0] === "old-delete"), true);
+  void originalUpdate;
+});
