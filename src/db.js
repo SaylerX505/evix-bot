@@ -105,6 +105,9 @@ export async function initDatabase(databaseUrl) {
       moderation_log_channel_id TEXT,
       transcript_channel_id TEXT,
       transcript_log_channel_id TEXT,
+      ticket_logs_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      moderation_logs_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      transcript_logs_enabled BOOLEAN NOT NULL DEFAULT TRUE,
       transcript_url TEXT,
       control_message_id TEXT,
       welcome_message TEXT NOT NULL DEFAULT 'Thanks for opening a ticket. A member of the team will be with you shortly.',
@@ -151,6 +154,9 @@ export async function initDatabase(databaseUrl) {
     ALTER TABLE guild_ticket_settings ADD COLUMN IF NOT EXISTS ticket_log_channel_id TEXT;
     ALTER TABLE guild_ticket_settings ADD COLUMN IF NOT EXISTS moderation_log_channel_id TEXT;
     ALTER TABLE guild_ticket_settings ADD COLUMN IF NOT EXISTS transcript_log_channel_id TEXT;
+    ALTER TABLE guild_ticket_settings ADD COLUMN IF NOT EXISTS ticket_logs_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE guild_ticket_settings ADD COLUMN IF NOT EXISTS moderation_logs_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE guild_ticket_settings ADD COLUMN IF NOT EXISTS transcript_logs_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 
     ALTER TABLE ticket_panels ADD COLUMN IF NOT EXISTS image_url TEXT;
     ALTER TABLE ticket_panels ADD COLUMN IF NOT EXISTS footer_show_bot BOOLEAN NOT NULL DEFAULT FALSE;
@@ -166,6 +172,9 @@ export async function initDatabase(databaseUrl) {
     ALTER TABLE tickets ADD COLUMN IF NOT EXISTS moderation_log_channel_id TEXT;
     ALTER TABLE tickets ADD COLUMN IF NOT EXISTS transcript_log_channel_id TEXT;
     ALTER TABLE tickets ADD COLUMN IF NOT EXISTS waiting_at TIMESTAMPTZ;
+    ALTER TABLE tickets ADD COLUMN IF NOT EXISTS ticket_logs_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE tickets ADD COLUMN IF NOT EXISTS moderation_logs_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE tickets ADD COLUMN IF NOT EXISTS transcript_logs_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 
     UPDATE guild_ticket_settings
     SET ticket_category_id = COALESCE(ticket_category_id, open_category_id),
@@ -265,6 +274,9 @@ export async function upsertGuildSettings(guildId, patch) {
     moderation_log_channel_id: null,
     transcript_channel_id: null,
     transcript_log_channel_id: null,
+    ticket_logs_enabled: true,
+    moderation_logs_enabled: true,
+    transcript_logs_enabled: true,
     default_ticket_limit: 1,
   };
 
@@ -292,6 +304,9 @@ export async function upsertGuildSettings(guildId, patch) {
       next.moderation_log_channel_id ?? null,
       next.transcript_channel_id ?? null,
       next.transcript_log_channel_id ?? null,
+      next.ticket_logs_enabled !== false,
+      next.moderation_logs_enabled !== false,
+      next.transcript_logs_enabled !== false,
       next.default_ticket_limit ?? 1,
     ],
   );
@@ -500,6 +515,7 @@ export async function createTicket(data) {
         data.guildId,data.panelId,data.optionId,data.channelId,data.ownerId,data.typeLabel,data.categoryId,data.closedCategoryId,
         JSON.stringify(unique(data.staffRoles)),JSON.stringify(unique(data.pingRoles)),data.dedupeKey ?? null,
         data.logChannelId ?? null,data.moderationLogChannelId ?? null,data.transcriptChannelId ?? null,
+        data.ticketLogsEnabled !== false,data.moderationLogsEnabled !== false,data.transcriptLogsEnabled !== false,
         data.controlMessageId ?? null,
         data.welcomeMessage || "Thanks for opening a ticket. A member of the team will be with you shortly.",
         data.closeBehavior || "move",
