@@ -37,7 +37,7 @@ export function parseRoleMentions(input) {
 
 export function parseUserId(input) {
   const value = String(input ?? "").trim();
-  const mention = value.match(/^<@!?(d+)>$/);
+  const mention = value.match(/^<@!?(\d+)>$/);
   if (mention) return mention[1];
   if (/^\d{5,30}$/.test(value)) return value;
   throw new Error("Enter a valid user ID or user mention.");
