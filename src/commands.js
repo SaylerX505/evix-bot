@@ -96,8 +96,10 @@ const panelCommand = new SlashCommandBuilder()
     .addStringOption((o) => o.setName("emoji").setDescription("Emoji; use - to clear"))
     .addChannelOption((o) => channelOption(o, "category", "Optional category override", [ChannelType.GuildCategory]))
     .addChannelOption((o) => channelOption(o, "closed_category", "Optional closed-category override", [ChannelType.GuildCategory]))
-    .addRoleOption((o) => o.setName("staff_roles").setDescription("Optional staff role"))
-    .addRoleOption((o) => o.setName("ping_roles").setDescription("Optional role to ping when a ticket is created"))
+    .addRoleOption((o) => o.setName("staff_roles").setDescription("Select staff role to set"))
+    .addRoleOption((o) => o.setName("ping_roles").setDescription("Select role to ping when a ticket is created"))
+    .addBooleanOption((o) => o.setName("clear_staff_roles").setDescription("Clear the configured staff role"))
+    .addBooleanOption((o) => o.setName("clear_ping_roles").setDescription("Clear the configured ping role"))
     .addStringOption((o) => o.setName("close_behavior").setDescription("Close routing behavior").addChoices({ name: "Move", value: "move" }, { name: "Stay", value: "stay" }))
     .addBooleanOption((o) => o.setName("allow_multiple").setDescription("Allow multiple active tickets"))
     .addBooleanOption((o) => o.setName("transcript_on_close").setDescription("Create a transcript on close"))
@@ -110,7 +112,11 @@ export const commands = [ticketCommand, panelCommand];
 function ephemeral(content) { return { content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } }; }
 async function respond(interaction, payload) { return interaction.deferred || interaction.replied ? interaction.editReply(payload) : interaction.reply(payload); }
 async function validateConfiguredRoles(guild, roleIds) {
-  for (const roleId of unique(roleIds)) if (!await guild.roles.fetch(roleId).catch(() => null)) throw new Error("Configured role " + roleId + " was not found in this server.");
+  for (const roleId of unique(roleIds)) {
+    const role = await guild.roles.fetch(roleId).catch(() => null);
+    if (!role) throw new Error("Configured role " + roleId + " was not found in this server.");
+    if (role.id === guild.id) throw new Error("The @everyone role cannot be used as a staff or ping role.");
+  }
 }
 async function refreshPanelMessage(guild, panel, ui) {
   if (!panel?.channel_id || !panel?.message_id) return;
@@ -243,6 +249,8 @@ export async function handlePanelCommand(interaction, ui) {
     const closedCategory = interaction.options.getChannel("closed_category");
     const staffRole = interaction.options.getRole("staff_roles");
     const pingRole = interaction.options.getRole("ping_roles");
+    const clearStaffRoles = interaction.options.getBoolean("clear_staff_roles") === true;
+    const clearPingRoles = interaction.options.getBoolean("clear_ping_roles") === true;
     const closeBehavior = interaction.options.getString("close_behavior");
     const allowMultiple = interaction.options.getBoolean("allow_multiple");
     const transcriptOnClose = interaction.options.getBoolean("transcript_on_close");
@@ -317,8 +325,12 @@ export async function handlePanelCommand(interaction, ui) {
     if (emoji !== null) patch.emoji = emoji === "-" ? null : emoji;
     if (category) patch.category_id = category.id;
     if (closedCategory) patch.closed_category_id = closedCategory.id;
-    if (staffRole) patch.staff_roles = [staffRole.id];
-    if (pingRole) patch.ping_roles = [pingRole.id];
+    if (staffRole && clearStaffRoles) throw new Error("Choose either a staff role or clear staff roles.");
+    if (pingRole && clearPingRoles) throw new Error("Choose either a ping role or clear ping roles.");
+    if (clearStaffRoles) patch.staff_roles = [];
+    else if (staffRole) patch.staff_roles = [staffRole.id];
+    if (clearPingRoles) patch.ping_roles = [];
+    else if (pingRole) patch.ping_roles = [pingRole.id];
     if (closeBehavior !== null) patch.close_behavior = closeBehavior;
     if (allowMultiple !== null) patch.allow_multiple = allowMultiple;
     if (transcriptOnClose !== null) patch.transcript_on_close = transcriptOnClose;
