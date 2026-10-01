@@ -165,24 +165,25 @@ export class TicketService {
   }
 
   async refreshControlMessage(interaction, ticket, { closed = false, welcomeOverride = null, closedBy = null } = {}) {
-    const payload = closed
-      ? buildClosedTicketView({ ...ticket, closed_by: closedBy || ticket.closed_by })
-      : buildTicketView(ticket, { welcome_message: welcomeOverride ?? ticket.welcome_message ?? "Thanks for opening a ticket. A member of the team will be with you shortly." });
-    const channel = await interaction.guild.channels.fetch(ticket.channel_id).catch(() => null);
-    if (!channel?.isTextBased?.()) return ticket;
-    const oldMessageId = ticket.control_message_id;
+    const latest = (await getTicketByChannel(interaction.guildId, ticket.channel_id).catch(() => null)) || ticket;
+    const renderClosed = closed && latest.status === "closed";
+    const payload = renderClosed
+      ? buildClosedTicketView({ ...latest, closed_by: closedBy || latest.closed_by })
+      : buildTicketView(latest, { welcome_message: welcomeOverride ?? latest.welcome_message ?? "Thanks for opening a ticket. A member of the team will be with you shortly." });
+    const channel = await interaction.guild.channels.fetch(latest.channel_id).catch(() => null);
+    if (!channel?.isTextBased?.()) return latest;
+    const oldMessageId = latest.control_message_id;
     const message = oldMessageId ? await channel.messages.fetch(oldMessageId).catch(() => null) : null;
     if (message) {
-      try { await message.edit(payload); return ticket; } catch (error) { console.error("[evix-ticket-control-edit-error]", error); }
+      try { await message.edit(payload); return latest; } catch (error) { console.error("[evix-ticket-control-edit-error]", error); }
     }
     try {
       const newMessage = await channel.send(payload);
-      const next = await updateTicket(ticket.id, { control_message_id: newMessage.id });
+      const next = await updateTicket(latest.id, { control_message_id: newMessage.id });
       if (oldMessageId && oldMessageId !== newMessage.id) await channel.messages.delete(oldMessageId, "Evix stale ticket control").catch(() => null);
-      return next ?? { ...ticket, control_message_id: newMessage.id };
-    } catch (error) { console.error("[evix-ticket-control-send-error]", error); return ticket; }
+      return next ?? { ...latest, control_message_id: newMessage.id };
+    } catch (error) { console.error("[evix-ticket-control-send-error]", error); return latest; }
   }
-
   async setParticipantPermissions(interaction, ticket, { view = true, send = true, rollbackTo = { view: true, send: true }, bestEffort = false } = {}) {
     const memberIds = unique([ticket.owner_id, ...(await listTicketMembers(ticket.id))]);
     const changed = [];
