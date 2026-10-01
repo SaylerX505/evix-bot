@@ -146,7 +146,8 @@ export async function handleInteraction(interaction, { service, ui }) {
       const ticket = await service.getTicket(interaction, ticketId);
       if (!service.canManageTicket(interaction.member, ticket) && !(action === "close" && service.canClose(interaction.member, ticket))) throw new Error("You are not authorized to confirm this action.");
       if (action === "keep-open" || action === "cancel") {
-        return interaction.update(ticket.status === "closed" ? buildClosedTicketView(ticket) : buildTicketView(ticket, { welcome_message: ticket.welcome_message }));
+        await interaction.deferUpdate();
+        return interaction.editReply(ticket.status === "closed" ? buildClosedTicketView(ticket) : buildTicketView(ticket, { welcome_message: ticket.welcome_message }));
       }
       if (action === "close") {
         await interaction.deferUpdate();
@@ -170,7 +171,7 @@ export async function handleInteraction(interaction, { service, ui }) {
       if (action === "delete") return service.requestDelete(interaction, ticket);
       if (action === "info") return service.info(interaction, ticket);
 
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      await interaction.deferReply();
       switch (action) {
         case "claim": return service.claim(interaction, ticket);
         case "unclaim": return service.unclaim(interaction, ticket);
