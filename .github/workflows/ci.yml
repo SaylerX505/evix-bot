@@ -16,15 +16,4 @@ jobs:
           node-version: 22
       - run: npm install --no-audit --no-fund
       - run: npm run check
-      - name: Run tests
-        run: |
-          set +e
-          npm test 2>&1 | tee test-output.txt
-          status=${PIPESTATUS[0]}
-          exit $status
-      - name: Upload test output
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: evix-test-output
-          path: test-output.txt
+      - run: npm test
