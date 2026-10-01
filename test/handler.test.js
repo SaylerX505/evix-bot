@@ -118,6 +118,23 @@ test("ticket control buttons acknowledge before slow work", async () => {
 });
 
 
+test("waiting button failures are reported ephemerally without replacing the public control", async () => {
+  const interaction = makeTicketButton("evix:t:42:waiting");
+  const service = delayedService({
+    id: 42,
+    owner_id: "different",
+    status: "waiting",
+    staff_roles: [],
+  });
+  service.canManageTicket = () => true;
+  service.resume = async () => { throw new Error("resume failed"); };
+
+  await handleInteraction(interaction, { service, ui: {} });
+
+  assert.deepEqual(interaction.calls, ["deferUpdate", "followUp"]);
+  assert.equal(interaction.calls.includes("editReply"), false);
+});
+
 test("waiting button updates the public control while slash waiting keeps its reply path", async () => {
   const button = makeTicketButton("evix:t:42:waiting");
   const buttonService = delayedService({
