@@ -26,7 +26,7 @@ async function respond(interaction, payload) {
   return interaction.reply(payload);
 }
 function ephemeral(content) { return { content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } }; }
-function statusIsActive(status) { return ["open", "waiting"].includes(status); }
+function statusIsActive(status) { return status === "open"; }
 function statusName(status, ticketKey) { return status === "open" ? "ticket-" + ticketKey : status + "-" + ticketKey; }
 
 export class TicketService {
@@ -256,148 +256,6 @@ export class TicketService {
     return next;
   }
 
-  async waiting(interaction, ticket) {
-    this.assertStaff(interaction.member, ticket);
-    if (ticket.status === "closed" || ticket.status === "deleted") throw new Error("Only active tickets can be moved to waiting.");
-    const previousStatus = ticket.status;
-    const nextStatus = transitionTicket(previousStatus, "waiting");
-    const settings = await this.getSettings(interaction.guildId);
-    const originalCategoryId = ticket.current_category_id || ticket.category_id || interaction.channel.parentId || null;
-    let currentCategoryId = originalCategoryId;
-    let routingWarning = null;
-
-    if (nextStatus === "waiting" && settings.waiting_category_id) {
-      try { const moved = await moveTicketChannel(interaction.channel, settings.waiting_category_id); if (moved) currentCategoryId = moved.id; }
-      catch (error) { routingWarning = error?.message || "Waiting category could not be used."; }
-    } else if (nextStatus === "open") {
-      try {
-        const target = await this.findCategoryForCreate(interaction.guild, categoryCandidates(ticket.category_id || settings.ticket_category_id || settings.open_category_id, settings.backup_category_id));
-        const moved = await moveTicketChannel(interaction.channel, target.category.id); if (moved) currentCategoryId = moved.id;
-      } catch (error) { routingWarning = error?.message || "The ticket category could not be restored."; }
-    }
-
-    let next = await updateTicket(ticket.id, { status: nextStatus, waiting_at: nextStatus === "waiting" ? new Date() : null, current_category_id: currentCategoryId }, { statuses: [previousStatus] });
-    if (!next) {
-      if (String(currentCategoryId || "") !== String(originalCategoryId || "")) await moveTicketChannel(interaction.channel, originalCategoryId).catch(() => null);
-      throw new Error("This ticket was changed by another action. Please try again.");
-    }
-    await interaction.channel.setName(statusName(nextStatus, next.ticket_key)).catch(() => null);
-    const eventType = nextStatus === "waiting" ? "TICKET_WAITING" : "TICKET_RESUMED";
-    const actionMessage = routingWarning
-      ? (nextStatus === "waiting" ? "The ticket was moved to waiting. " : "The ticket was resumed. ") + routingWarning
-      : (nextStatus === "waiting" ? "The ticket is now waiting for staff handling." : "The ticket is active again.");
-
-    // Button interactions that change ticket state update the public control message
-    // directly. Slash commands still receive their normal interaction response.
-    if (interaction.isButton?.()) {
-      await this.refreshControlMessage(interaction, next);
-    } else {
-      await respond(
-        interaction,
-        buildActionResult(
-          nextStatus === "waiting" ? "Ticket Waiting" : "Ticket Resumed",
-          actionMessage,
-        ),
-      );
-      void this.refreshControlMessage(interaction, next)
-        .catch((error) => console.error("[evix-ticket-refresh-after-waiting-error]", error));
-    }
-
-    void addTicketEvent(ticket.id, eventType, interaction.user.id, {
-      status: nextStatus,
-      category: currentCategoryId,
-      warning: routingWarning || "none",
-    }).catch((error) => console.error("[evix-ticket-event-after-waiting-error]", error));
-    void writeTicketLog(interaction.guild, next, eventType, interaction.user.id, {
-      status: nextStatus,
-      category: currentCategoryId,
-    }).catch((error) => console.error("[evix-ticket-log-after-waiting-error]", error));
-    return next;
-  }
-
-  async resume(interaction, ticket) {
-    this.assertStaff(interaction.member, ticket);
-    if (ticket.status !== "waiting") {
-      if (statusIsActive(ticket.status)) {
-        if (interaction.isButton?.()) {
-          await this.refreshControlMessage(interaction, ticket);
-          return ticket;
-        }
-        return respond(interaction, buildActionResult("Ticket Already Open", "This ticket is already active."));
-      }
-      throw new Error("Only waiting tickets can be resumed.");
-    }
-    transitionTicket(ticket.status, "waiting");
-
-    const previousCategoryId = ticket.current_category_id || interaction.channel.parentId || ticket.category_id || null;
-    const next = await updateTicket(
-      ticket.id,
-      {
-        status: "open",
-        waiting_at: null,
-        current_category_id: previousCategoryId,
-      },
-      { statuses: ["waiting"] },
-    );
-    if (!next) throw new Error("This ticket was changed by another action. Please try again.");
-
-    await interaction.channel.setName(statusName("open", next.ticket_key)).catch(() => null);
-
-    // Update the public control message immediately. Category routing can be slower
-    // and must not hold the user-facing Resume action hostage.
-    await this.refreshControlMessage(interaction, next, {
-      welcomeOverride: next.welcome_message || "This ticket has been resumed.",
-    });
-
-    let routed = next;
-    let routingWarning = null;
-    try {
-      const settings = await this.getSettings(interaction.guildId);
-      const candidates = categoryCandidates(
-        ticket.category_id || settings.ticket_category_id || settings.open_category_id,
-        settings.backup_category_id,
-      );
-      const target = await this.findCategoryForCreate(interaction.guild, candidates);
-      const moved = await moveTicketChannel(interaction.channel, target.category.id);
-      if (moved) {
-        routed = await updateTicket(next.id, { current_category_id: moved.id }, { statuses: ["open"] }) ?? {
-          ...next,
-          current_category_id: moved.id,
-        };
-        if (String(moved.id) !== String(previousCategoryId || "")) {
-          await this.refreshControlMessage(interaction, routed);
-        }
-      }
-    } catch (error) {
-      routingWarning = error?.message || "The ticket category could not be restored.";
-      console.error("[evix-ticket-resume-routing-error]", error);
-    }
-
-    const finalTicket = routed;
-    void addTicketEvent(finalTicket.id, "TICKET_RESUMED", interaction.user.id, {
-      status: finalTicket.status,
-      category: finalTicket.current_category_id,
-      warning: routingWarning || "none",
-    }).catch((error) => console.error("[evix-ticket-resume-event-error]", error));
-    void writeTicketLog(interaction.guild, finalTicket, "TICKET_RESUMED", interaction.user.id, {
-      status: finalTicket.status,
-      category: finalTicket.current_category_id,
-      warning: routingWarning || "none",
-    }).catch((error) => console.error("[evix-ticket-resume-log-error]", error));
-
-    return finalTicket;
-  }
-
-  async requestClose(interaction, ticket) {
-    if (!this.canClose(interaction.member, ticket)) throw new Error("Only the ticket owner or configured staff can close this ticket.");
-    if (ticket.status === "closed") {
-      await this.refreshControlMessage(interaction, ticket, { closed: true, closedBy: ticket.closed_by });
-      return respond(interaction, buildActionResult("Ticket Already Closed", "This ticket is already closed. Use the controls on the closed ticket message."));
-    }
-    if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
-    return respond(interaction, buildCloseConfirmation(ticket));
-  }
-
   async close(interaction, ticket, { reply = true, closedBy = null, backgroundSideEffects = true } = {}) {
     if (!this.canClose(interaction.member, ticket)) throw new Error("Only the ticket owner or configured staff can close this ticket.");
     if (ticket.status === "closed") return ticket;
@@ -410,7 +268,7 @@ export class TicketService {
       closed_by: closedBy || interaction.user.id,
       claimed_by: null,
       claimed_at: null,
-    }, { statuses: ["open", "locked", "waiting"] });
+    }, { statuses: ["open", "locked"] });
     if (!next) throw new Error("This ticket was already closed by another action.");
 
     try {
@@ -428,7 +286,6 @@ export class TicketService {
           closed_by: ticket.closed_by,
           claimed_by: ticket.claimed_by,
           claimed_at: ticket.claimed_at,
-          waiting_at: ticket.waiting_at,
         },
         { statuses: ["closed"] },
       ).catch(() => null);
@@ -511,7 +368,6 @@ export class TicketService {
         reopened_at: new Date(),
         closed_at: null,
         closed_by: null,
-        waiting_at: null,
         current_category_id: target.category.id,
       },
       { statuses: ["closed"] },
