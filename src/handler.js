@@ -177,8 +177,17 @@ export async function handleInteraction(interaction, { service, ui }) {
       }
       if (action === "close") {
         await interaction.deferUpdate();
-        await service.close(interaction, ticket, { reply: false, closedBy: interaction.user.id });
         await interaction.deleteReply().catch(() => null);
+        try {
+          await service.close(interaction, ticket, { reply: false, closedBy: interaction.user.id });
+        } catch (error) {
+          const normalized = normalizeError(error);
+          logInteractionError(interaction, normalized, error);
+          await interaction.followUp({
+            ...buildErrorResult(normalized),
+            flags: MessageFlags.Ephemeral,
+          }).catch(() => null);
+        }
         return;
       }
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
