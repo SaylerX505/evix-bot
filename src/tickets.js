@@ -390,7 +390,7 @@ export class TicketService {
           status: "closed",
           closed_at: ticket.closed_at,
           closed_by: ticket.closed_by,
-          reopened_at: ticket.reopened_at
+          reopened_at: ticket.reopened_at,
           current_category_id: previousCategoryId,
         },
         { statuses: ["open"] },
