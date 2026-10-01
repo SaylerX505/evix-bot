@@ -3,6 +3,7 @@ import { MAX_COMPONENT_OPTIONS, unique } from "./utils.js";
 
 const { Pool } = pg;
 let pool;
+const ticketActionLocks = new Map();
 
 export function getPool() {
   if (!pool) throw new Error("Database has not been initialized.");
@@ -256,27 +257,20 @@ async function withTransaction(callback) {
 }
 
 export async function withTicketActionLock(ticketId, callback) {
-  const client = await getPool().connect();
-  const lockKey = "ticket-action:" + String(ticketId);
-  let acquired = false;
+  const key = String(ticketId);
+  if (ticketActionLocks.has(key)) {
+    const error = new Error("Another action is already being processed for this ticket. Please try again in a moment.");
+    error.code = "EVIX_TICKET_BUSY";
+    throw error;
+  }
+
+  const operation = Promise.resolve().then(callback);
+  ticketActionLocks.set(key, operation);
+
   try {
-    const { rows } = await client.query(
-      "SELECT pg_try_advisory_lock(hashtext($1)) AS locked",
-      [lockKey],
-    );
-    acquired = rows[0]?.locked === true;
-    if (!acquired) {
-      const error = new Error("Another action is already being processed for this ticket. Please try again in a moment.");
-      error.code = "EVIX_TICKET_BUSY";
-      throw error;
-    }
-    return await callback();
+    return await operation;
   } finally {
-    if (acquired) await client.query(
-      "SELECT pg_advisory_unlock(hashtext($1))",
-      [lockKey],
-    ).catch(() => null);
-    client.release();
+    if (ticketActionLocks.get(key) === operation) ticketActionLocks.delete(key);
   }
 }
 
