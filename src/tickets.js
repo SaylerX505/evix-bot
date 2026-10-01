@@ -73,7 +73,11 @@ export class TicketService {
     const me = interaction.guild.members.me ?? await interaction.guild.members.fetchMe();
     const staffRoles = unique(option.staff_roles);
     const pingRoles = unique(option.ping_roles);
-    for (const roleId of [...staffRoles, ...pingRoles]) if (!await interaction.guild.roles.fetch(roleId).catch(() => null)) throw new Error("Configured role " + roleId + " no longer exists.");
+    for (const roleId of [...staffRoles, ...pingRoles]) {
+      const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+      if (!role) throw new Error("Configured role " + roleId + " no longer exists.");
+      if (role.id === interaction.guild.id) throw new Error("The @everyone role cannot be used as a staff or ping role.");
+    }
     const roleOverwrites = staffRoles.map((roleId) => ({ id: roleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks] }));
 
     let channel = null;
@@ -406,7 +410,16 @@ export class TicketService {
     if (!members.includes(String(userId))) throw new Error("That user is not an added member of this ticket.");
     await interaction.channel.permissionOverwrites.delete(userId);
     try { await removeTicketMember(ticket.id, userId); }
-    catch (error) { await interaction.channel.permissionOverwrites.edit(userId, { ViewChannel: ticket.status !== "closed", SendMessages: ticket.status !== "closed", ReadMessageHistory: ticket.status !== "closed", AttachFiles: true, EmbedLinks: true }).catch(() => null); throw error; }
+    catch (error) {
+      await interaction.channel.permissionOverwrites.edit(userId, {
+        ViewChannel: true,
+        SendMessages: ticket.status !== "closed",
+        ReadMessageHistory: true,
+        AttachFiles: true,
+        EmbedLinks: true,
+      }).catch(() => null);
+      throw error;
+    }
     await addTicketEvent(ticket.id, "MEMBER_REMOVED", interaction.user.id, { user: userId });
     await respond(interaction, buildActionResult("User Removed", "<@" + interaction.user.id + "> removed <@" + userId + "> successfully."));
     await writeTicketLog(interaction.guild, ticket, "MEMBER_REMOVED", interaction.user.id, { user: userId });
@@ -438,6 +451,7 @@ export class TicketService {
   }
 
   async createTranscript(interaction, ticket, silent = false) {
+    if (ticket.transcript_logs_enabled === false) return null;
     const transcript = await buildTranscript(interaction.channel, ticket);
     const destinationId = ticket.transcript_log_channel_id || ticket.transcript_channel_id;
     if (!destinationId) { if (!silent) await interaction.followUp(buildActionResult("Transcript Unavailable", "Transcript logging is not configured.", 0xed4245)).catch(() => null); return null; }
