@@ -1,7 +1,7 @@
 import { ChannelType, MessageFlags, PermissionFlagsBits } from "discord.js";
 import { addTicketEvent, addTicketMember, countOpenTickets, createTicket, getGuildSettings, getOpenTicketForUser, getTicketByChannel, listTicketMembers, removeTicketMember, updateTicket, withTicketActionLock } from "./db.js";
 import { writeTicketLog } from "./logs.js";
-import { buildActionResult, buildClosedTicketView, buildDeleteConfirmation, buildInfoView, buildTicketView, buildCloseConfirmation } from "./ui.js";
+import { buildActionResult, buildClaimResult, buildClosedTicketView, buildDeleteConfirmation, buildInfoView, buildTicketView, buildCloseConfirmation } from "./ui.js";
 import { buildTranscript, transcriptAttachment } from "./transcript.js";
 import { transitionTicket } from "./state.js";
 import { categoryCandidates, findTicketCreationCategory, moveTicketChannel } from "./routing.js";
@@ -208,19 +208,44 @@ export class TicketService {
   }
   async setParticipantPermissions(interaction, ticket, { view = true, send = true, rollbackTo = { view: true, send: true }, bestEffort = false } = {}) {
     const memberIds = unique([ticket.owner_id, ...(await listTicketMembers(ticket.id))]);
-    const changed = [];
-    const failed = [];
-    for (const userId of memberIds) {
-      try { await interaction.channel.permissionOverwrites.edit(userId, { ViewChannel: view, SendMessages: send, ReadMessageHistory: view }); changed.push(userId); }
-      catch (error) {
-        failed.push({ userId, error });
-        if (!bestEffort) {
-          for (const changedUserId of changed) await interaction.channel.permissionOverwrites.edit(changedUserId, { ViewChannel: rollbackTo.view, SendMessages: rollbackTo.send, ReadMessageHistory: rollbackTo.view }).catch(() => null);
-          throw error;
-        }
+    const results = await Promise.all(memberIds.map(async (userId) => {
+      try {
+        await interaction.channel.permissionOverwrites.edit(userId, {
+          ViewChannel: view,
+          SendMessages: send,
+          ReadMessageHistory: view,
+        });
+        return { userId, ok: true };
+      } catch (error) {
+        return { userId, ok: false, error };
       }
+    }));
+
+    const changed = results.filter((result) => result.ok).map((result) => result.userId);
+    const failed = results
+      .filter((result) => !result.ok)
+      .map(({ userId, error }) => ({ userId, error }));
+
+    if (failed.length && !bestEffort) {
+      await Promise.all(
+        changed.map((userId) =>
+          interaction.channel.permissionOverwrites.edit(userId, {
+            ViewChannel: rollbackTo.view,
+            SendMessages: rollbackTo.send,
+            ReadMessageHistory: rollbackTo.view,
+          }).catch(() => null),
+        ),
+      );
+      throw failed[0].error;
     }
-    if (failed.length) console.error("[evix-participant-permission-failures]", failed.map(({ userId, error }) => ({ userId, message: error?.message || "unknown error" })));
+
+    if (failed.length) {
+      console.error("[evix-participant-permission-failures]", failed.map(({ userId, error }) => ({
+        userId,
+        message: error?.message || "unknown error",
+      })));
+    }
+
     return { changed, failed };
   }
 
@@ -231,7 +256,7 @@ export class TicketService {
     if (ticket.claimed_by) throw new Error("This ticket is already claimed by <@" + ticket.claimed_by + ">.");
     const next = await updateTicket(ticket.id, { claimed_by: interaction.user.id, claimed_at: new Date() }, { statuses: ["open"], claimedBy: null });
     if (!next) throw new Error("This ticket was changed by another staff member. Please try again.");
-    await respond(interaction, buildActionResult("Ticket Claimed", "This ticket has been claimed by <@" + interaction.user.id + ">."));
+    await respond(interaction, buildClaimResult(next));
     void addTicketEvent(ticket.id, "TICKET_CLAIMED", interaction.user.id)
       .catch((error) => console.error("[evix-ticket-claim-event-error]", error));
     void this.refreshControlMessage(interaction, next)
@@ -361,15 +386,52 @@ export class TicketService {
     transitionTicket(ticket.status, "reopen");
 
     const settings = await this.getSettings(interaction.guildId);
-    const candidates = categoryCandidates(ticket.category_id || settings.ticket_category_id || settings.open_category_id, settings.backup_category_id);
+    const candidates = categoryCandidates(
+      ticket.category_id || settings.ticket_category_id || settings.open_category_id,
+      settings.backup_category_id,
+    );
     const previousCategoryId = ticket.current_category_id || interaction.channel.parentId || null;
+
     let target;
-    try {
-      target = await this.findCategoryForCreate(interaction.guild, candidates);
-      await moveTicketChannel(interaction.channel, target.category.id);
-    } catch (error) {
-      throw new Error("Ticket reopen routing failed: " + (error?.message || "ticket category unavailable"));
+    let permissions;
+    const [routingResult, permissionsResult] = await Promise.allSettled([
+      (async () => {
+        const result = await this.findCategoryForCreate(interaction.guild, candidates);
+        await moveTicketChannel(interaction.channel, result.category.id);
+        return result;
+      })(),
+      this.setParticipantPermissions(interaction, ticket, {
+        view: true,
+        send: true,
+        rollbackTo: { view: false, send: false },
+      }),
+    ]);
+
+    if (routingResult.status === "rejected" || permissionsResult.status === "rejected") {
+      if (routingResult.status === "fulfilled") {
+        const routedCategoryId = routingResult.value.category.id;
+        if (String(routedCategoryId) !== String(previousCategoryId || "")) {
+          await moveTicketChannel(interaction.channel, previousCategoryId).catch(() => null);
+        }
+      }
+      if (permissionsResult.status === "fulfilled" && permissionsResult.value.changed.length) {
+        await Promise.all(
+          permissionsResult.value.changed.map((userId) =>
+            interaction.channel.permissionOverwrites.edit(userId, {
+              ViewChannel: false,
+              SendMessages: false,
+              ReadMessageHistory: false,
+            }).catch(() => null),
+          ),
+        );
+      }
+
+      const failure = routingResult.status === "rejected" ? routingResult.reason : permissionsResult.reason;
+      const prefix = routingResult.status === "rejected" ? "Ticket reopen routing failed: " : "Ticket reopen failed: ";
+      throw new Error(prefix + (failure?.message || "ticket state could not be restored"));
     }
+    target = routingResult.value;
+    permissions = permissionsResult.value;
 
     const next = await updateTicket(
       ticket.id,
@@ -383,30 +445,21 @@ export class TicketService {
       { statuses: ["closed"] },
     );
     if (!next) {
-      if (String(target.category.id) !== String(previousCategoryId || "")) await moveTicketChannel(interaction.channel, previousCategoryId).catch(() => null);
+      if (String(target.category.id) !== String(previousCategoryId || "")) {
+        await moveTicketChannel(interaction.channel, previousCategoryId).catch(() => null);
+      }
+      if (permissions.changed.length) {
+        await Promise.all(
+          permissions.changed.map((userId) =>
+            interaction.channel.permissionOverwrites.edit(userId, {
+              ViewChannel: false,
+              SendMessages: false,
+              ReadMessageHistory: false,
+            }).catch(() => null),
+          ),
+        );
+      }
       throw new Error("This ticket was changed by another action. Please try again.");
-    }
-
-    try {
-      await this.setParticipantPermissions(interaction, next, {
-        view: true,
-        send: true,
-        rollbackTo: { view: false, send: false },
-      });
-    } catch (error) {
-      await updateTicket(
-        ticket.id,
-        {
-          status: "closed",
-          closed_at: ticket.closed_at,
-          closed_by: ticket.closed_by,
-          reopened_at: ticket.reopened_at,
-          current_category_id: previousCategoryId,
-        },
-        { statuses: ["open"] },
-      ).catch(() => null);
-      if (String(target.category.id) !== String(previousCategoryId || "")) await moveTicketChannel(interaction.channel, previousCategoryId).catch(() => null);
-      throw new Error("Ticket reopen failed: " + (error?.message || "participant permissions could not be restored"));
     }
 
     await interaction.channel.setName(statusName("open", next.ticket_key)).catch(() => null);
