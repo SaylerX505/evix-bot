@@ -179,7 +179,7 @@ export class TicketService {
   async refreshControlMessage(interaction, ticket, { closed = false, welcomeOverride = null, closedBy = null } = {}) {
     return queueTicketControlRefresh(ticket.id, async () => {
       const latest = (await getTicketByChannel(interaction.guildId, ticket.channel_id).catch(() => null)) || ticket;
-      const renderClosed = closed && latest.status === "closed";
+      const renderClosed = latest.status === "closed";
       const payload = renderClosed
         ? buildClosedTicketView({ ...latest, closed_by: closedBy || latest.closed_by })
         : buildTicketView(latest, { welcome_message: welcomeOverride ?? latest.welcome_message ?? "Thanks for opening a ticket. A member of the team will be with you shortly." });
@@ -382,7 +382,10 @@ export class TicketService {
 
   async requestClose(interaction, ticket) {
     if (!this.canClose(interaction.member, ticket)) throw new Error("Only the ticket owner or configured staff can close this ticket.");
-    if (ticket.status === "closed") throw new Error("This ticket is already closed.");
+    if (ticket.status === "closed") {
+      await this.refreshControlMessage(interaction, ticket, { closed: true, closedBy: ticket.closed_by });
+      return respond(interaction, buildActionResult("Ticket Already Closed", "This ticket is already closed. Use the controls on the closed ticket message."));
+    }
     if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
     return respond(interaction, buildCloseConfirmation(ticket));
   }
