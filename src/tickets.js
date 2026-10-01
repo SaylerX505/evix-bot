@@ -256,6 +256,16 @@ export class TicketService {
     return next;
   }
 
+  async requestClose(interaction, ticket) {
+    if (!this.canClose(interaction.member, ticket)) throw new Error("Only the ticket owner or configured staff can close this ticket.");
+    if (ticket.status === "closed") {
+      await this.refreshControlMessage(interaction, ticket, { closed: true, closedBy: ticket.closed_by });
+      return respond(interaction, buildActionResult("Ticket Already Closed", "This ticket is already closed. Use the controls on the closed ticket message."));
+    }
+    if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
+    return respond(interaction, buildCloseConfirmation(ticket));
+  }
+
   async close(interaction, ticket, { reply = true, closedBy = null, backgroundSideEffects = true } = {}) {
     if (!this.canClose(interaction.member, ticket)) throw new Error("Only the ticket owner or configured staff can close this ticket.");
     if (ticket.status === "closed") return ticket;
