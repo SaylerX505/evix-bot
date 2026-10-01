@@ -69,6 +69,7 @@ export async function handleInteraction(interaction, { service, ui }) {
     if (interaction.isModalSubmit() && interaction.customId.startsWith("evix:modal:")) {
       const match = interaction.customId.match(/^evix:modal:(\d+)$/);
       if (!match) throw new Error("Invalid ticket form.");
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const option = await getPanelOption(match[1], interaction.guildId);
       if (!option) throw new Error("This ticket form is no longer available.");
       const formValues = {};
@@ -76,7 +77,6 @@ export async function handleInteraction(interaction, { service, ui }) {
         const value = interaction.fields.getTextInputValue(field.id);
         if (value?.trim()) formValues[field.id] = value;
       }
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       await service.createFromOption(interaction, option, formValues);
       return;
     }
