@@ -329,6 +329,8 @@ test("randomized concurrent ticket controls allow the lock to serialize mutation
   for (let round = 0; round < 80; round += 1) {
     world.service.state.status = "open";
     world.service.state.claimed_by = null;
+    world.stats.mutations = 0;
+    world.stats.rejected = 0;
     const actions = shuffled(MUTATING, random);
     const interactions = actions.map((action, index) =>
       makeInteraction("evix:t:42:" + action, userFor(action, index)),
