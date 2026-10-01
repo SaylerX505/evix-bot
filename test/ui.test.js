@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { MessageFlags } from "discord.js";
-import { buildCloseConfirmation, buildClosedTicketView, buildInfoView, buildPanelMessage, buildTicketView } from "../src/ui.js";
+import { buildAdminEmbed, buildCloseConfirmation, buildClosedTicketView, buildErrorResult, buildInfoView, buildPanelMessage, buildTicketView } from "../src/ui.js";
 
 function option(id, extra = {}) {
-  return { id, panel_id: 1, label: "Option " + id, description: extra.description ?? null, emoji: extra.emoji ?? null, action: "CREATE_TICKET" };
+  return { id, panel_id: 1, label: "Option " + id, description: extra.description ?? null, emoji: extra.emoji ?? null, action: extra.action ?? "CREATE_TICKET" };
 }
 function containerJson(payload) { return payload.components[0].toJSON(); }
 
@@ -18,6 +18,25 @@ test("ticket panels are dropdown-only Components V2 containers", () => {
   assert.equal(rows.length, 1);
   assert.equal(rows[0].components[0].type, 3);
   assert.equal(rows[0].components[0].options.length, 1);
+});
+
+test("panel dropdown keeps both CREATE_TICKET and NOTHING options", () => {
+  const payload = buildPanelMessage({ id: 1, options: [option(1), option(2, { action: "NOTHING" })] });
+  const select = containerJson(payload).components.find((component) => component.type === 1).components[0];
+  assert.deepEqual(select.options.map((entry) => entry.value), ["1", "2"]);
+});
+
+test("panel admin feedback uses a normal embed", () => {
+  const payload = buildAdminEmbed("Option Saved Successfully", "Saved successfully.");
+  assert.equal(payload.embeds.length, 1);
+  assert.equal(payload.components, undefined);
+});
+
+test("error feedback is a normal embed with a reference", () => {
+  const payload = buildErrorResult({ message: "Something went wrong.", code: "EVIX_ERROR", reference: "EVX-TEST" });
+  const embed = payload.embeds[0].toJSON();
+  assert.equal(embed.title, "Evix Error");
+  assert.match(embed.description, /EVX-TEST/);
 });
 
 test("panel content is optional and the dropdown remains valid", () => {

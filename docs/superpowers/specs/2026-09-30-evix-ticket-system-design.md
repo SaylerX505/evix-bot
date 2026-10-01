@@ -36,7 +36,7 @@ Each ticket type can independently define:
 4. Evix creates the ticket channel under the configured category.
 5. Channel permissions grant the ticket owner access, grant configured staff roles access, and deny @everyone access.
 6. Evix sends the configured ticket welcome view and optional role mentions.
-7. Staff can claim/unclaim, add/remove members, rename, lock/unlock, close, reopen, and generate transcripts according to permissions. Manage Channels is accepted as a ticket-management override.
+7. Staff can claim/unclaim, add/remove members, rename, close, reopen, and generate transcripts according to permissions. Manage Channels is accepted as a ticket-management override.
 8. Close changes ticket state and either moves it to the configured closed category or leaves it in place, according to ticket type configuration.
 9. Transcript and audit log events are generated according to configuration.
 10. Delete requires confirmation, then permanently removes the channel after the configured close flow.
@@ -107,7 +107,7 @@ The UI layer must not contain database/business rules.
 - /ticket panel send
 - /ticket panel reset
 
-Command descriptions and option names must remain clear and Discord-native.
+Command descriptions and option names must remain clear and Discord-native. Panel and option references use Discord autocomplete selectors instead of manually entered numeric IDs.
 
 ## Persistence
 
@@ -196,7 +196,7 @@ Version 1.0.1 does not include:
 
 ## Release
 
-The production implementation is released as **1.0.1**.
+The production implementation is released as **1.0.2**.
 
 Implementation history should remain understandable and human-like. The preferred release shape is a focused implementation commit titled:
 

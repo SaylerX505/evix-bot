@@ -51,6 +51,7 @@ export class TicketService {
   }
 
   async createFromOption(interaction, option, formValues = {}) {
+    if (option.action === "NOTHING") throw new Error("This option does not create a ticket.");
     const settings = await this.getSettings(interaction.guildId);
     const primaryCategory = option.category_id || settings.ticket_category_id || settings.open_category_id;
     const categoryIds = categoryCandidates(primaryCategory, settings.backup_category_id);
@@ -253,7 +254,7 @@ export class TicketService {
     if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
     transitionTicket(ticket.status, "close");
 
-    let next = await updateTicket(ticket.id, { status: "closed", closed_at: new Date(), claimed_by: null, claimed_at: null }, { statuses: ["open", "waiting"] });
+    let next = await updateTicket(ticket.id, { status: "closed", closed_at: new Date(), closed_by: closedBy || interaction.user.id, claimed_by: null, claimed_at: null }, { statuses: ["open", "waiting"] });
     if (!next) throw new Error("This ticket was already closed by another action.");
 
     try {
@@ -295,7 +296,7 @@ export class TicketService {
     try { target = await this.findCategoryForCreate(interaction.guild, candidates); await moveTicketChannel(interaction.channel, target.category.id); }
     catch (error) { throw new Error("Ticket reopen routing failed: " + (error?.message || "ticket category unavailable")); }
 
-    const next = await updateTicket(ticket.id, { status: "open", reopened_at: new Date(), closed_at: null, waiting_at: null, current_category_id: target.category.id }, { statuses: ["closed"] });
+    const next = await updateTicket(ticket.id, { status: "open", reopened_at: new Date(), closed_at: null, closed_by: null, waiting_at: null, current_category_id: target.category.id }, { statuses: ["closed"] });
     if (!next) throw new Error("This ticket was changed by another action. Please try again.");
     await interaction.channel.setName(statusName("open", next.ticket_key)).catch(() => null);
     await this.refreshControlMessage(interaction, next, { welcomeOverride: "This ticket has been reopened." });
@@ -309,9 +310,10 @@ export class TicketService {
     this.assertStaff(interaction.member, ticket);
     const safe = sanitizeChannelName(name);
     if (!safe) throw new Error("The ticket name cannot be empty.");
-    await interaction.channel.setName(safe);
+    const finalName = statusName(ticket.status, safe);
+    await interaction.channel.setName(finalName);
     await addTicketEvent(ticket.id, "TICKET_RENAMED", interaction.user.id, { name: safe });
-    await respond(interaction, buildActionResult("Ticket Renamed", "The ticket channel is now `" + safe + "`."));
+    await respond(interaction, buildActionResult("Ticket Renamed", "The ticket channel is now `" + finalName + "`."));
     await writeTicketLog(interaction.guild, ticket, "TICKET_RENAMED", interaction.user.id, { name: safe });
   }
 

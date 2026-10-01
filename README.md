@@ -2,7 +2,7 @@
 
 Professional Discord ticketing system for Evix.
 
-Evix 1.0.1 provides a Discord-native ticket workflow with a clean Components V2 UI, configurable panels, buttons, select menus, forms, role-based access, transcripts, and audit logs.
+Evix 1.0.2 provides a Discord-native ticket workflow with a clean Components V2 UI, configurable panels, buttons, select menus, forms, role-based access, transcripts, and audit logs.
 
 ## Requirements
 
@@ -48,22 +48,21 @@ Ticket actions:
 - `/ticket add`
 - `/ticket remove`
 - `/ticket rename`
-- `/ticket lock`
-- `/ticket unlock`
 - `/ticket delete`
 
 Administration:
 - `/ticket setup`
 - `/ticket config`
 - `/ticket logs`
-- `/ticket panel create`
-- `/ticket panel edit`
-- `/ticket panel delete`
-- `/ticket panel send`
-- `/ticket panel reset`
-- `/ticket panel option-add`
-- `/ticket panel option-edit`
-- `/ticket panel option-remove`
+- `/panel create`
+- `/panel edit`
+- `/panel list`
+- `/panel send`
+- `/panel reset`
+- `/panel delete`
+- `/panel option-add`
+- `/panel option-edit`
+- `/panel option-remove`
 
 ### Role input
 
@@ -86,7 +85,7 @@ The database is PostgreSQL and startup schema creation is additive/idempotent. E
 
 ### Ticket forms
 
-`/ticket panel option-add` and `option-edit` accept an optional JSON `form` field with up to five inputs:
+`/panel option-add` and `option-edit` accept an optional JSON `form` field with up to five inputs:
 
 ```json
 [
@@ -105,4 +104,4 @@ Delete actions use a confirmation step. Ticket control messages are refreshed af
 
 ## Release
 
-Version: `1.0.1`
+Version: `1.0.2`

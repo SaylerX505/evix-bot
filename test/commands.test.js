@@ -32,6 +32,26 @@ test("ticket add command supports either user or role", () => {
   assert.equal(add.options.find((option) => option.name === "role").required, false);
 });
 
+test("panel selectors use Discord autocomplete instead of numeric IDs", () => {
+  const panel = commands.find((command) => command.name === "panel").toJSON();
+  for (const name of ["edit", "send", "reset", "delete", "option-add", "option-edit", "option-remove"]) {
+    const sub = panel.options.find((option) => option.name === name);
+    assert.equal(sub.options.find((option) => option.name === "panel").autocomplete, true);
+  }
+  for (const name of ["option-edit", "option-remove"]) {
+    const sub = panel.options.find((option) => option.name === name);
+    assert.equal(sub.options.find((option) => option.name === "option").autocomplete, true);
+  }
+});
+
+test("panel options support CREATE_TICKET and NOTHING actions", () => {
+  const panel = commands.find((command) => command.name === "panel").toJSON();
+  const add = panel.options.find((option) => option.name === "option-add");
+  const action = add.options.find((option) => option.name === "action");
+  assert.equal(action.required, true);
+  assert.deepEqual(action.choices.map((choice) => choice.value), ["CREATE_TICKET", "NOTHING"]);
+});
+
 test("panel option management requires a name only when creating an option", () => {
   const panel = commands.find((command) => command.name === "panel").toJSON();
   const add = panel.options.find((option) => option.name === "option-add");

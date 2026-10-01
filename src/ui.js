@@ -1,6 +1,7 @@
 import {
   ActionRowBuilder,
   ButtonBuilder,
+  EmbedBuilder,
   ButtonStyle,
   ContainerBuilder,
   MediaGalleryBuilder,
@@ -75,7 +76,7 @@ function containerWithText(title, lines, accent = DEFAULT_ACCENT) {
 }
 
 export function buildPanelMessage(panel, _botUser = null, { preview = false } = {}) {
-  const options = Array.isArray(panel.options) ? panel.options.filter((option) => option.action === "CREATE_TICKET") : [];
+  const options = Array.isArray(panel.options) ? panel.options.filter((option) => ["CREATE_TICKET", "NOTHING"].includes(option.action ?? "CREATE_TICKET")) : [];
   if (options.length > MAX_COMPONENT_OPTIONS) throw new Error("Panel exceeds the Discord select-menu option limit.");
   if (!options.length && !preview) throw new Error("Panel has no ticket options.");
 
@@ -190,6 +191,18 @@ export function buildInfoView(ticket, members = []) {
   return v2Message([container], {
     allowedMentions: { parse: [], users: [String(ticket.owner_id), ...(ticket.claimed_by ? [String(ticket.claimed_by)] : []), ...members.map(String)] },
   });
+}
+
+export function buildAdminEmbed(title, description, color = DEFAULT_ACCENT) {
+  return {
+    embeds: [new EmbedBuilder().setTitle(title).setDescription(description).setColor(color).setFooter({ text: "Powered by Evix team" })],
+    allowedMentions: { parse: [] },
+  };
+}
+
+export function buildErrorResult(error) {
+  const description = [String(error?.message || "Something went wrong."), "", "-# Code: " + String(error?.code || "EVIX_ERROR") + " · Reference: " + String(error?.reference || "unknown")].join("\n");
+  return buildAdminEmbed("Evix Error", description, 0xed4245);
 }
 
 export function buildActionResult(title, description, accent = DEFAULT_ACCENT) {

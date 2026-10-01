@@ -94,6 +94,8 @@ export async function initDatabase(databaseUrl) {
       type_label TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'open',
       claimed_by TEXT,
+      claimed_at TIMESTAMPTZ,
+      closed_by TEXT,
       category_id TEXT,
       current_category_id TEXT,
       closed_category_id TEXT,
@@ -172,6 +174,8 @@ export async function initDatabase(databaseUrl) {
     ALTER TABLE tickets ADD COLUMN IF NOT EXISTS moderation_log_channel_id TEXT;
     ALTER TABLE tickets ADD COLUMN IF NOT EXISTS transcript_log_channel_id TEXT;
     ALTER TABLE tickets ADD COLUMN IF NOT EXISTS waiting_at TIMESTAMPTZ;
+    ALTER TABLE tickets ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ;
+    ALTER TABLE tickets ADD COLUMN IF NOT EXISTS closed_by TEXT;
     ALTER TABLE tickets ADD COLUMN IF NOT EXISTS ticket_logs_enabled BOOLEAN NOT NULL DEFAULT TRUE;
     ALTER TABLE tickets ADD COLUMN IF NOT EXISTS moderation_logs_enabled BOOLEAN NOT NULL DEFAULT TRUE;
     ALTER TABLE tickets ADD COLUMN IF NOT EXISTS transcript_logs_enabled BOOLEAN NOT NULL DEFAULT TRUE;
@@ -190,8 +194,8 @@ export async function initDatabase(databaseUrl) {
     SET ticket_key = 'EVX-' || LPAD(id::text, 6, '0')
     WHERE ticket_key IS DISTINCT FROM ('EVX-' || LPAD(id::text, 6, '0'));
     UPDATE ticket_panel_options
-    SET component_kind = 'dropdown', action = 'CREATE_TICKET'
-    WHERE component_kind <> 'dropdown' OR action <> 'CREATE_TICKET';
+    SET component_kind = 'dropdown'
+    WHERE component_kind <> 'dropdown';
 
     UPDATE tickets
     SET current_category_id = COALESCE(current_category_id, category_id),
@@ -221,7 +225,7 @@ export async function initDatabase(databaseUrl) {
 
     ALTER TABLE ticket_panel_options DROP CONSTRAINT IF EXISTS ticket_panel_options_action_check;
     ALTER TABLE ticket_panel_options ADD CONSTRAINT ticket_panel_options_action_check
-      CHECK (action = 'CREATE_TICKET');
+      CHECK (action IN ('CREATE_TICKET','NOTHING'));
 
     CREATE INDEX IF NOT EXISTS ticket_events_ticket_idx ON ticket_events (ticket_id, created_at);
   `);
@@ -409,15 +413,18 @@ export async function resetPanel(panelId) {
 }
 
 export async function addPanelOption(data) {
+  const action = data.action ?? "CREATE_TICKET";
+  if (!["CREATE_TICKET", "NOTHING"].includes(action)) throw new Error("Panel option action must be CREATE_TICKET or NOTHING.");
   const { rows } = await query(
     "INSERT INTO ticket_panel_options (panel_id,position,component_kind,label,description,emoji,action,category_id,closed_category_id,staff_roles,ping_roles,log_channel_id,moderation_log_channel_id,transcript_channel_id,welcome_message,ticket_name_template,close_behavior,transcript_on_close,allow_multiple,button_style,modal_fields) " +
-    "VALUES ($1,$2,'dropdown',$3,$4,$5,'CREATE_TICKET',$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb) RETURNING *",
+    "VALUES ($1,$2,'dropdown',$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20::jsonb) RETURNING *",
     [
       data.panelId,
       data.position,
       data.label,
       data.description ?? null,
       data.emoji ?? null,
+      action,
       data.categoryId ?? null,
       data.closedCategoryId ?? null,
       JSON.stringify(unique(data.staffRoles)),
@@ -462,6 +469,7 @@ export async function updatePanelOption(optionId, patch) {
   ];
   const keys = Object.keys(patch).filter((key) => allowed.includes(key));
   if (!keys.length) throw new Error("No editable option fields were provided.");
+  if (Object.hasOwn(patch, "action") && !["CREATE_TICKET", "NOTHING"].includes(patch.action)) throw new Error("Panel option action must be CREATE_TICKET or NOTHING.");
   const jsonKeys = new Set(["staff_roles","ping_roles","modal_fields"]);
   const values = keys.map((key) => jsonKeys.has(key)
     ? JSON.stringify(key === "modal_fields" ? patch[key] : unique(patch[key]))
@@ -528,7 +536,7 @@ export async function createTicket(data) {
 
 export async function updateTicket(ticketId, patch, conditions = {}) {
   const allowed = [
-    "status","claimed_by","transcript_url","closed_at","reopened_at","waiting_at","deleted_at",
+    "status","claimed_by","claimed_at","closed_by","transcript_url","closed_at","reopened_at","waiting_at","deleted_at",
     "channel_id","ticket_key","control_message_id","welcome_message","current_category_id"
   ];
   const keys = Object.keys(patch).filter((key) => allowed.includes(key));

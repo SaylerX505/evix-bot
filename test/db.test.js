@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
-import { closeDatabase, initDatabase, updatePanel, updatePanelOption, updateTicket, upsertGuildSettings } from "../src/db.js";
+import { addPanelOption, closeDatabase, initDatabase, updatePanel, updatePanelOption, updateTicket, upsertGuildSettings } from "../src/db.js";
 
 test("database update builders emit valid PostgreSQL placeholders", async () => {
   const queries = [];
@@ -19,8 +19,8 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
     queries.length = 0;
 
     await updatePanel(1, { title: "New", accent_color: 123 });
-    await updatePanelOption(2, { label: "Support", button_style: 3 });
-    await updateTicket(3, { status: "closed", claimed_by: null }, { statuses: ["open", "locked"], claimedBy: null });
+    await updatePanelOption(2, { label: "Support", button_style: 3, action: "NOTHING" });
+    await updateTicket(3, { status: "closed", claimed_by: null, claimed_at: null, closed_by: "staff" }, { statuses: ["open", "locked"], claimedBy: null });
 
     assert.ok(queries[0].text.includes("title = $2"));
     assert.ok(queries[0].text.includes("accent_color = $3"));
@@ -28,13 +28,18 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
 
     assert.ok(queries[1].text.includes("label = $2"));
     assert.ok(queries[1].text.includes("button_style = $3"));
-    assert.deepEqual(queries[1].params, [2, "Support", 3]);
+    assert.deepEqual(queries[1].params, [2, "Support", 3, "NOTHING"]);
 
     assert.ok(queries[2].text.includes("status=$2"));
     assert.ok(queries[2].text.includes("claimed_by=$3"));
-    assert.ok(queries[2].text.includes("status = ANY($4::text[])"));
-    assert.ok(queries[2].text.includes("claimed_by IS NOT DISTINCT FROM $5"));
-    assert.deepEqual(queries[2].params, [3, "closed", null, ["open", "locked"], null]);
+    assert.ok(queries[2].text.includes("status = ANY($6::text[])"));
+    assert.ok(queries[2].text.includes("claimed_by IS NOT DISTINCT FROM $7"));
+    assert.deepEqual(queries[2].params, [3, "closed", null, null, "staff", ["open", "locked"], null]);
+
+    await addPanelOption({ panelId: 1, position: 0, label: "Services", action: "NOTHING", staffRoles: [], pingRoles: [], modalFields: [] });
+    const optionInsert = queries.find((entry) => entry.text.startsWith("INSERT INTO ticket_panel_options"));
+    assert.ok(optionInsert);
+    assert.equal(optionInsert.params[5], "NOTHING");
 
     queries.length = 0;
     pg.Pool.prototype.query = async function(text, params) {

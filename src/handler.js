@@ -9,10 +9,10 @@ import {
   setPanelDraft,
 } from "./panels.js";
 import { getPanel, getPanelOption, updatePanel } from "./db.js";
-import { buildActionResult, buildCloseConfirmation, buildClosedTicketView, buildInfoView, buildPanelMessage, buildTicketView, v2Message } from "./ui.js";
-import { buildRenameModal, buildTicketModal, handlePanelCommand, handleTicketCommand } from "./commands.js";
+import { buildActionResult, buildCloseConfirmation, buildClosedTicketView, buildErrorResult, buildInfoView, buildPanelMessage, buildTicketView, v2Message } from "./ui.js";
+import { logInteractionError, normalizeError } from "./errors.js";
+import { buildRenameModal, buildTicketModal, handlePanelAutocomplete, handlePanelCommand, handleTicketCommand } from "./commands.js";
 
-function errorMessage(error) { return "Evix error: " + (error instanceof Error ? error.message : "Unknown error."); }
 async function replySafely(interaction, payload) {
   if (interaction.deferred || interaction.replied) return interaction.editReply(payload);
   return interaction.reply(payload);
@@ -25,9 +25,23 @@ async function requirePanelDraft(interaction, panelId) {
 
 export async function handleInteraction(interaction, { service, ui }) {
   try {
+    if (interaction.isAutocomplete()) {
+      if (interaction.commandName === "panel") await handlePanelAutocomplete(interaction);
+      else await interaction.respond([]);
+      return;
+    }
+
     if (interaction.isChatInputCommand()) {
-      if (interaction.commandName === "ticket") await handleTicketCommand(interaction, service, ui);
-      else if (interaction.commandName === "panel") await handlePanelCommand(interaction, ui);
+      if (interaction.commandName === "ticket") {
+        const sub = interaction.options.getSubcommand();
+        if (["info", "claim", "unclaim", "waiting", "reopen", "add", "remove", "rename"].includes(sub)) await interaction.deferReply();
+        else if (sub === "transcript") await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await handleTicketCommand(interaction, service, ui);
+      } else if (interaction.commandName === "panel") {
+        const sub = interaction.options.getSubcommand();
+        if (["list", "send", "reset", "delete", "option-add", "option-edit", "option-remove"].includes(sub)) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await handlePanelCommand(interaction, ui);
+      }
       return;
     }
 
@@ -38,6 +52,13 @@ export async function handleInteraction(interaction, { service, ui }) {
       if (!optionId) throw new Error("No ticket type was selected.");
       const option = await getPanelOption(optionId, interaction.guildId);
       if (!option || String(option.panel_id) !== match[1]) throw new Error("This panel option is no longer available.");
+      if (option.action === "NOTHING") {
+        await interaction.reply({
+          ...buildActionResult("Option Selected", "This option does not perform an action."),
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+        });
+        return;
+      }
       const modal = buildTicketModal(option);
       if (modal) { await interaction.showModal(modal); return; }
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -171,7 +192,7 @@ export async function handleInteraction(interaction, { service, ui }) {
       if (action === "delete") return service.requestDelete(interaction, ticket);
       if (action === "info") return service.info(interaction, ticket);
 
-      await interaction.deferReply();
+      await interaction.deferReply({ flags: action === "transcript" ? MessageFlags.Ephemeral : 0 });
       switch (action) {
         case "claim": return service.claim(interaction, ticket);
         case "unclaim": return service.unclaim(interaction, ticket);
@@ -182,7 +203,12 @@ export async function handleInteraction(interaction, { service, ui }) {
       }
     }
   } catch (error) {
-    await replySafely(interaction, buildActionResult("Evix Error", errorMessage(error), 0xed4245)).catch(() => null);
-    console.error("[evix-interaction-error]", error);
+    const normalized = normalizeError(error);
+    logInteractionError(interaction, normalized, error);
+    if (interaction.isAutocomplete()) {
+      await interaction.respond([]).catch(() => null);
+      return;
+    }
+    await replySafely(interaction, buildErrorResult(normalized)).catch(() => null);
   }
 }

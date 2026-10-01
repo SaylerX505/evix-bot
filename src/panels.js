@@ -85,7 +85,7 @@ export function buildPanelStudioPayload(panel, botUser, state = {}) {
       new TextDisplayBuilder().setContent([
         "**Panel:** " + panel.name,
         "**Options:** " + (panel.options?.length ?? 0) + "/25",
-        state.saved ? "**Status:** Saved" : "**Status:** Draft",
+        state.saved ? "**Status:** Saved Successfully" : "**Status:** Draft",
       ].join("\n")),
     )
     .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
@@ -95,7 +95,7 @@ export function buildPanelStudioPayload(panel, botUser, state = {}) {
       new ButtonBuilder().setCustomId("evix:panelstudio:" + panel.id + ":preview").setLabel("Preview").setStyle(ButtonStyle.Secondary),
     ))
     .addActionRowComponents(new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId("evix:panelstudio:" + panel.id + ":save").setLabel("Save").setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId("evix:panelstudio:" + panel.id + ":save").setLabel(state.saved ? "Saved Successfully" : "Save").setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId("evix:panelstudio:" + panel.id + ":close").setLabel("Close").setStyle(ButtonStyle.Secondary),
     ));
   return v2Message([...preview.components, controls], { allowedMentions: { parse: [] } });

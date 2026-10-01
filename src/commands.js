@@ -27,7 +27,7 @@ import {
   updatePanelOption,
   upsertGuildSettings,
 } from "./db.js";
-import { assertPanelOptions, parseRoleMentions, unique, validateModalFields } from "./utils.js";
+import { assertPanelOptions, parseRoleMentions, truncate, unique, validateModalFields } from "./utils.js";
 import { beginPanelStudio } from "./panels.js";
 
 const ADMIN = PermissionFlagsBits.ManageGuild;
@@ -70,14 +70,15 @@ const ticketCommand = new SlashCommandBuilder()
 const panelCommand = new SlashCommandBuilder()
   .setName("panel").setDescription("Manage Evix ticket panels")
   .addSubcommand((s) => s.setName("create").setDescription("Create a ready-to-edit ticket panel").addStringOption((o) => o.setName("name").setDescription("Panel name").setRequired(true).setMinLength(1).setMaxLength(40)))
-  .addSubcommand((s) => s.setName("edit").setDescription("Open the panel studio").addStringOption((o) => o.setName("panel").setDescription("Panel name or ID").setRequired(true)))
+  .addSubcommand((s) => s.setName("edit").setDescription("Open the panel studio").addStringOption((o) => o.setName("panel").setDescription("Select a panel").setRequired(true).setAutocomplete(true)))
   .addSubcommand((s) => s.setName("list").setDescription("List ticket panels"))
-  .addSubcommand((s) => s.setName("send").setDescription("Send a ticket panel").addStringOption((o) => o.setName("panel").setDescription("Panel name or ID").setRequired(true)).addChannelOption((o) => channelOption(o, "channel", "Destination text channel", [ChannelType.GuildText]).setRequired(true)))
-  .addSubcommand((s) => s.setName("reset").setDescription("Reset a panel to its ready default").addStringOption((o) => o.setName("panel").setDescription("Panel name or ID").setRequired(true)))
-  .addSubcommand((s) => s.setName("delete").setDescription("Delete a ticket panel").addStringOption((o) => o.setName("panel").setDescription("Panel name or ID").setRequired(true)))
+  .addSubcommand((s) => s.setName("send").setDescription("Send a ticket panel").addStringOption((o) => o.setName("panel").setDescription("Select a panel").setRequired(true).setAutocomplete(true)).addChannelOption((o) => channelOption(o, "channel", "Destination text channel", [ChannelType.GuildText]).setRequired(true)))
+  .addSubcommand((s) => s.setName("reset").setDescription("Reset a panel to its ready default").addStringOption((o) => o.setName("panel").setDescription("Select a panel").setRequired(true).setAutocomplete(true)))
+  .addSubcommand((s) => s.setName("delete").setDescription("Delete a ticket panel").addStringOption((o) => o.setName("panel").setDescription("Select a panel").setRequired(true).setAutocomplete(true)))
   .addSubcommand((s) => s.setName("option-add").setDescription("Add a ticket option to a panel")
-    .addStringOption((o) => o.setName("panel").setDescription("Panel name or ID").setRequired(true))
+    .addStringOption((o) => o.setName("panel").setDescription("Select a panel").setRequired(true).setAutocomplete(true))
     .addStringOption((o) => o.setName("name").setDescription("Dropdown option name").setRequired(true).setMaxLength(80))
+    .addStringOption((o) => o.setName("action").setDescription("What should happen when selected").setRequired(true).addChoices({ name: "Create ticket", value: "CREATE_TICKET" }, { name: "Nothing", value: "NOTHING" }))
     .addStringOption((o) => o.setName("description").setDescription("Optional dropdown description").setMaxLength(100))
     .addStringOption((o) => o.setName("emoji").setDescription("Optional emoji"))
     .addChannelOption((o) => channelOption(o, "category", "Optional category override", [ChannelType.GuildCategory]))
@@ -91,8 +92,8 @@ const panelCommand = new SlashCommandBuilder()
     .addBooleanOption((o) => o.setName("allow_multiple").setDescription("Allow multiple active tickets of this option"))
     .addBooleanOption((o) => o.setName("transcript_on_close").setDescription("Create a transcript on close")))
   .addSubcommand((s) => s.setName("option-edit").setDescription("Edit a ticket option")
-    .addStringOption((o) => o.setName("panel").setDescription("Panel name or ID").setRequired(true))
-    .addStringOption((o) => o.setName("option").setDescription("Option ID").setRequired(true))
+    .addStringOption((o) => o.setName("panel").setDescription("Select a panel").setRequired(true).setAutocomplete(true))
+    .addStringOption((o) => o.setName("option").setDescription("Select an option").setRequired(true).setAutocomplete(true))
     .addStringOption((o) => o.setName("name").setDescription("Dropdown option name").setMaxLength(80))
     .addStringOption((o) => o.setName("description").setDescription("Dropdown description; use - to clear").setMaxLength(100))
     .addStringOption((o) => o.setName("emoji").setDescription("Emoji; use - to clear"))
@@ -105,13 +106,15 @@ const panelCommand = new SlashCommandBuilder()
     .addStringOption((o) => o.setName("close_behavior").setDescription("Close routing behavior").addChoices({ name: "Move", value: "move" }, { name: "Stay", value: "stay" }))
     .addStringOption((o) => o.setName("form").setDescription("Modal fields JSON; use [] to clear").setMaxLength(4000))
     .addBooleanOption((o) => o.setName("allow_multiple").setDescription("Allow multiple active tickets"))
-    .addBooleanOption((o) => o.setName("transcript_on_close").setDescription("Create a transcript on close")))
-  .addSubcommand((s) => s.setName("option-remove").setDescription("Remove a ticket option").addStringOption((o) => o.setName("panel").setDescription("Panel name or ID").setRequired(true)).addStringOption((o) => o.setName("option").setDescription("Option ID").setRequired(true)))
+    .addBooleanOption((o) => o.setName("transcript_on_close").setDescription("Create a transcript on close"))
+    .addStringOption((o) => o.setName("action").setDescription("What should happen when selected").addChoices({ name: "Create ticket", value: "CREATE_TICKET" }, { name: "Nothing", value: "NOTHING" })))
+  .addSubcommand((s) => s.setName("option-remove").setDescription("Remove a ticket option").addStringOption((o) => o.setName("panel").setDescription("Select a panel").setRequired(true).setAutocomplete(true)).addStringOption((o) => o.setName("option").setDescription("Select an option").setRequired(true).setAutocomplete(true)))
   .setDMPermission(false);
 
 export const commands = [ticketCommand, panelCommand];
 
 function ephemeral(content) { return { content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } }; }
+async function respond(interaction, payload) { return interaction.deferred || interaction.replied ? interaction.editReply(payload) : interaction.reply(payload); }
 async function validateConfiguredRoles(guild, roleIds) {
   for (const roleId of unique(roleIds)) if (!await guild.roles.fetch(roleId).catch(() => null)) throw new Error("Configured role " + roleId + " was not found in this server.");
 }
@@ -203,19 +206,16 @@ export async function handleTicketCommand(interaction, service, ui) {
   }
 }
 
-async function handlePanelList(interaction) {
+async function handlePanelList(interaction, ui) {
   const panels = await listPanels(interaction.guildId);
-  const container = new ContainerBuilder().setAccentColor(0x5865f2).addTextDisplayComponents(
-    new TextDisplayBuilder().setContent("# Evix Panels"),
-    new TextDisplayBuilder().setContent(panels.length ? panels.map((panel) => "**" + panel.name + "** · ID " + panel.id).join("\n") : "No panels created yet. Use /panel create."),
-  ).addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
-  return interaction.reply({ components: [container], flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+  const description = panels.length ? panels.map((panel) => "**" + panel.name + "** · ID " + panel.id).join("\n") : "No panels created yet. Use /panel create.";
+  return respond(interaction, ui.buildAdminEmbed("Evix Panels", description));
 }
 
 export async function handlePanelCommand(interaction, ui) {
   if (!interaction.memberPermissions?.has(ADMIN)) throw new Error("You need Manage Server to manage ticket panels.");
   const sub = interaction.options.getSubcommand();
-  if (sub === "list") return handlePanelList(interaction);
+  if (sub === "list") return handlePanelList(interaction, ui);
   const panelInput = interaction.options.getString("panel", false);
   if (sub === "create") {
     const panel = await createPanel({ guildId: interaction.guildId, name: interaction.options.getString("name", true), title: "", description: "", footer: "", imageUrl: null, placeholder: "", accentColor: 0x5865f2, footerShowBot: false, withDefaultOption: true });
@@ -231,19 +231,19 @@ export async function handlePanelCommand(interaction, ui) {
     const message = await channel.send(ui.buildPanelMessage(panel, interaction.client.user));
     try { await updatePanel(panel.id, { channel_id: channel.id, message_id: message.id }); } catch (error) { await message.delete("Evix panel pointer update failed").catch(() => null); throw error; }
     if (previous.message_id && previous.message_id !== message.id) await removeStoredPanelMessage(interaction.guild, previous);
-    return interaction.reply(ephemeral("Panel sent to <#" + channel.id + ">."));
+    return respond(interaction, ui.buildAdminEmbed("Panel Sent", "Panel **" + panel.name + "** has been sent to <#" + channel.id + ">."));
   }
   if (sub === "reset") {
     const previous = { channel_id: panel.channel_id, message_id: panel.message_id };
     const reset = await resetPanel(panel.id);
     if (previous.message_id) await removeStoredPanelMessage(interaction.guild, previous);
-    return interaction.reply(ephemeral("Panel " + reset.name + " was reset to its ready default."));
+    return respond(interaction, ui.buildAdminEmbed("Panel Reset", "Panel **" + reset.name + "** has been reset successfully."));
   }
   if (sub === "delete") {
     const previous = { channel_id: panel.channel_id, message_id: panel.message_id };
     await deletePanel(panel.id);
     if (previous.message_id) await removeStoredPanelMessage(interaction.guild, previous);
-    return interaction.reply(ephemeral("Panel " + panel.name + " deleted."));
+    return respond(interaction, ui.buildAdminEmbed("Panel Deleted", "Panel **" + panel.name + "** has been deleted successfully.", 0xed4245));
   }
 
   let optionId;
@@ -255,7 +255,7 @@ export async function handlePanelCommand(interaction, ui) {
     const refreshed = await getPanel(interaction.guildId, panel.id);
     if (refreshed?.options?.length) await refreshPanelMessage(interaction.guild, refreshed, ui);
     else { await removeStoredPanelMessage(interaction.guild, panel); if (refreshed) await updatePanel(refreshed.id, { channel_id: null, message_id: null }); }
-    return interaction.reply(ephemeral("Ticket option removed."));
+    return respond(interaction, ui.buildAdminEmbed("Option Removed", "The selected option has been removed successfully.", 0xed4245));
   }
 
   const description = interaction.options.getString("description");
@@ -273,18 +273,20 @@ export async function handlePanelCommand(interaction, ui) {
 
   if (sub === "option-add") {
     const label = interaction.options.getString("name", true);
+    const action = interaction.options.getString("action", true);
     const staffRoles = unique(parseRoleMentions(staffRolesInput || ""));
     const pingRoles = unique(parseRoleMentions(pingRolesInput || ""));
     await validateConfiguredRoles(interaction.guild, [...staffRoles, ...pingRoles]);
     const options = await listPanelOptions(panel.id);
-    const option = await addPanelOption({ panelId: panel.id, position: options.length, label, description, emoji, categoryId: category?.id ?? null, closedCategoryId: closedCategory?.id ?? null, staffRoles, pingRoles, welcomeMessage: welcome ?? "", ticketNameTemplate: nameTemplate || "ticket-{number}", closeBehavior: closeBehavior || "move", allowMultiple: allowMultiple === true, transcriptOnClose: transcriptOnClose !== false, modalFields: parseFormInput(formInput) });
+    const option = await addPanelOption({ panelId: panel.id, position: options.length, label, description, emoji, action, categoryId: category?.id ?? null, closedCategoryId: closedCategory?.id ?? null, staffRoles, pingRoles, welcomeMessage: welcome ?? "", ticketNameTemplate: nameTemplate || "ticket-{number}", closeBehavior: closeBehavior || "move", allowMultiple: allowMultiple === true, transcriptOnClose: transcriptOnClose !== false, modalFields: parseFormInput(formInput) });
     const refreshed = await getPanel(interaction.guildId, panel.id);
     await refreshPanelMessage(interaction.guild, refreshed, ui);
-    return interaction.reply(ephemeral("Ticket option " + option.label + " created. ID " + option.id + "."));
+    return respond(interaction, ui.buildAdminEmbed("Option Created", "Option **" + option.label + "** has been created successfully in panel **" + panel.name + "**.\n\n**Action**\n`" + option.action + "`"));
   }
 
   if (sub === "option-edit") {
     const patch = {};
+    const action = interaction.options.getString("action");
     const name = interaction.options.getString("name");
     if (name !== null) patch.label = name;
     if (description !== null) patch.description = description === "-" ? null : description;
@@ -299,12 +301,36 @@ export async function handlePanelCommand(interaction, ui) {
     if (formInput !== null) patch.modal_fields = parseFormInput(formInput);
     if (allowMultiple !== null) patch.allow_multiple = allowMultiple;
     if (transcriptOnClose !== null) patch.transcript_on_close = transcriptOnClose;
+    if (action !== null) patch.action = action;
     const updated = Object.keys(patch).length ? await updatePanelOption(optionId, patch) : target;
     const refreshed = await getPanel(interaction.guildId, panel.id);
     await refreshPanelMessage(interaction.guild, refreshed, ui);
-    return interaction.reply(ephemeral("Ticket option " + updated.label + " updated."));
+    return respond(interaction, ui.buildAdminEmbed("Option Saved Successfully", "Option **" + updated.label + "** has been saved successfully in panel **" + panel.name + "**."));
   }
   throw new Error("Unknown panel action.");
+}
+
+export async function handlePanelAutocomplete(interaction) {
+  const focused = interaction.options.getFocused(true);
+  const query = String(focused.value ?? "").toLowerCase().trim();
+  try {
+    if (focused.name === "panel") {
+      const panels = await listPanels(interaction.guildId);
+      return interaction.respond(panels.filter((panel) => !query || String(panel.name).toLowerCase().includes(query) || String(panel.id).includes(query)).slice(0, 25).map((panel) => ({ name: truncate(String(panel.name) + " · ID " + panel.id, 100), value: String(panel.id) })));
+    }
+    if (focused.name === "option") {
+      const panelInput = interaction.options.getString("panel");
+      if (!panelInput) return interaction.respond([]);
+      const panel = await getPanel(interaction.guildId, panelInput);
+      if (!panel) return interaction.respond([]);
+      const options = await listPanelOptions(panel.id);
+      return interaction.respond(options.filter((option) => !query || String(option.label).toLowerCase().includes(query) || String(option.id).includes(query)).slice(0, 25).map((option) => ({ name: truncate(String(option.label) + " · ID " + option.id, 100), value: String(option.id) })));
+    }
+    return interaction.respond([]);
+  } catch (error) {
+    console.error("[evix-panel-autocomplete-error]", error);
+    return interaction.respond([]).catch(() => null);
+  }
 }
 
 export function buildRenameModal(ticketId) {
