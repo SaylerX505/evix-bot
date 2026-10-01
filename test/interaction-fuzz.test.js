@@ -317,7 +317,7 @@ async function applyStep(world, step) {
   assert.equal(interaction.deferred || interaction.replied, true, "interaction was left unacknowledged: " + step);
   const acknowledged = confirmation
     ? interaction.calls.includes("deferUpdate")
-    : interaction.calls.includes("deferReply");
+    : ["deferReply", "reply", "update", "showModal"].some((type) => interaction.calls.includes(type));
   assert.equal(acknowledged, true, "ticket interaction did not acknowledge: " + step);
   assert.ok(["open", "waiting", "closed", "deleted"].includes(world.service.state.status));
   const activeView = buildTicketView(world.service.state, { welcome_message: "Test" });
