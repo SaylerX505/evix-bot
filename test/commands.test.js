@@ -76,5 +76,7 @@ test("panel option edit uses role selectors and removes unused fields", () => {
   const edit = panel.options.find((option) => option.name === "option-edit");
   assert.equal(edit.options.find((option) => option.name === "staff_roles").type, 8);
   assert.equal(edit.options.find((option) => option.name === "ping_roles").type, 8);
+  assert.equal(edit.options.find((option) => option.name === "clear_staff_roles").type, 5);
+  assert.equal(edit.options.find((option) => option.name === "clear_ping_roles").type, 5);
   assert.equal(edit.options.some((option) => ["form", "name_template", "welcome"].includes(option.name)), false);
 });
