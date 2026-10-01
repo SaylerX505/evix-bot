@@ -1,14 +1,6 @@
 import { ContainerBuilder, MessageFlags, SectionBuilder, SeparatorBuilder, SeparatorSpacingSize, TextDisplayBuilder, ThumbnailBuilder } from "discord.js";
 import { truncate } from "./utils.js";
 
-const MODERATION_EVENTS = new Set([
-  "TICKET_DELETED",
-  "MEMBER_ADDED",
-  "MEMBER_REMOVED",
-  "TICKET_LOCKED",
-  "TICKET_UNLOCKED",
-]);
-
 const LOG_EVENT_LABELS = new Map([
   ["TICKET_CREATED", "Open"],
   ["TICKET_CLAIMED", "Claimed"],
