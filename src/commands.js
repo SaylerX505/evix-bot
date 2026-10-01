@@ -444,11 +444,6 @@ export async function handlePanelCommand(interaction, ui) {
     if (allowMultiple !== null) patch.allow_multiple = allowMultiple;
     if (transcriptOnClose !== null) patch.transcript_on_close = transcriptOnClose;
 
-    const effectiveCategory = patch.category_id ?? target.category_id ?? defaults?.ticket_category_id ?? defaults?.open_category_id;
-    if (!effectiveCategory) {
-      throw new Error("Configure the main Tickets category before creating or editing ticket options.");
-    }
-
     const updated = Object.keys(patch).length ? await updatePanelOption(optionId, patch) : target;
     const refreshed = await getPanel(interaction.guildId, panel.id);
     await refreshPanelMessage(interaction.guild, refreshed, ui);
