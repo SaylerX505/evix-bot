@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
-import { closeDatabase, initDatabase, updatePanel, updatePanelOption, updateTicket } from "../src/db.js";
+import { closeDatabase, initDatabase, updatePanel, updatePanelOption, updateTicket, upsertGuildSettings } from "../src/db.js";
 
 test("database update builders emit valid PostgreSQL placeholders", async () => {
   const queries = [];
@@ -35,6 +35,29 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
     assert.ok(queries[2].text.includes("status = ANY($4::text[])"));
     assert.ok(queries[2].text.includes("claimed_by IS NOT DISTINCT FROM $5"));
     assert.deepEqual(queries[2].params, [3, "closed", null, ["open", "locked"], null]);
+
+    queries.length = 0;
+    pg.Pool.prototype.query = async function(text, params) {
+      queries.push({ text, params });
+      if (text.startsWith("SELECT * FROM guild_ticket_settings")) return { rows: [] };
+      if (text.startsWith("INSERT INTO guild_ticket_settings")) return { rows: [{ guild_id: "1" }] };
+      return { rows: [] };
+    };
+
+    await upsertGuildSettings("1", {
+      ticket_category_id: "10",
+      ticket_logs_enabled: false,
+      moderation_logs_enabled: true,
+      transcript_logs_enabled: false,
+    });
+
+    const settingsQuery = queries.find((entry) => entry.text.startsWith("INSERT INTO guild_ticket_settings"));
+    assert.ok(settingsQuery);
+    assert.ok(settingsQuery.text.includes("ticket_logs_enabled"));
+    assert.ok(settingsQuery.text.includes("$13"));
+    assert.ok(settingsQuery.text.includes("$14"));
+    assert.ok(settingsQuery.text.includes("$15"));
+    assert.deepEqual(settingsQuery.params.slice(-4), [false, true, false, 1]);
   } finally {
     pg.Pool.prototype.query = originalQuery;
     pg.Pool.prototype.end = originalEnd;
