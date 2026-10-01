@@ -462,7 +462,9 @@ export class TicketService {
       throw new Error("This ticket was changed by another action. Please try again.");
     }
 
-    await interaction.channel.setName(statusName("open", next.ticket_key)).catch(() => null);
+    void interaction.channel.setName(statusName("open", next.ticket_key)).catch((error) => {
+      console.error("[evix-reopen-channel-rename-error]", error);
+    });
     await respond(interaction, buildActionResult("Ticket Reopened", "This ticket is open again and ready for handling."));
 
     void addTicketEvent(next.id, "TICKET_REOPENED", interaction.user.id, { category: target.category.id })
