@@ -202,6 +202,7 @@ export async function handleTicketCommand(interaction, service, ui) {
     case "delete": return service.requestDelete(interaction, ticket);
     default: throw new Error("Unknown ticket subcommand.");
   }
+}
 
 async function handlePanelList(interaction, ui) {
   const panels = await listPanels(interaction.guildId);
