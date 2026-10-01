@@ -8,3 +8,9 @@ test("waiting is a first-class ticket state", () => {
   assert.equal(transitionTicket("waiting", "waiting"), "open");
   assert.equal(transitionTicket("waiting", "close"), "closed");
 });
+
+
+test("legacy locked tickets can still close", () => {
+  assert.equal(transitionTicket("locked", "close"), "closed");
+  assert.equal(transitionTicket("locked", "waiting"), "waiting");
+});
