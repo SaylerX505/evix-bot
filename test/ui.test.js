@@ -80,5 +80,5 @@ test("ticket info is a Components V2 container", () => {
   assert.equal(payload.flags, MessageFlags.IsComponentsV2);
   const json = JSON.stringify(containerJson(payload));
   assert.equal(json.includes("EVX-000042"), true);
-  assert.equal(json.includes("waiting"), true);
+  assert.equal(json.includes("Waiting"), true);
 });
