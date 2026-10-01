@@ -66,7 +66,7 @@ Administration:
 
 ### Role input
 
-Staff and ping roles use Discord's native role picker in `/panel option-add` and `/panel option-edit`. The command stores the selected role as the corresponding role list entry.
+Staff and ping roles use Discord's native role picker in `/panel option-add` and `/panel option-edit`. The command stores the selected role as the corresponding role list entry. In `/panel option-edit`, the `clear_staff_roles` and `clear_ping_roles` switches remove the configured role.
 
 
 ## Ticket behavior
