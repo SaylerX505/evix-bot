@@ -534,7 +534,7 @@ export async function updateTicket(ticketId, patch, conditions = {}) {
   const keys = Object.keys(patch).filter((key) => allowed.includes(key));
   if (!keys.length) throw new Error("No editable ticket fields were provided.");
   const values = keys.map((key) => patch[key]);
-  const assignments = keys.map((key, index) => key + " = $" + (index + 2)).join(", ");
+  const assignments = keys.map((key, index) => key + "=$" + (index + 2)).join(", ");
   const where = ["id=$1"];
 
   if (conditions.statuses?.length) {
