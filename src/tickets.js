@@ -176,7 +176,7 @@ export class TicketService {
     return ticket;
   }
 
-  async refreshControlMessage(interaction, ticket, { closed = false, welcomeOverride = null, closedBy = null } = {}) {
+  async refreshControlMessage(interaction, ticket, { closed = false, welcomeOverride = null, closedBy = null, replace = false } = {}) {
     return queueTicketControlRefresh(ticket.id, async () => {
       const latest = (await getTicketByChannel(interaction.guildId, ticket.channel_id).catch(() => null)) || ticket;
       const renderClosed = latest.status === "closed";
@@ -187,14 +187,22 @@ export class TicketService {
       if (!channel?.isTextBased?.()) return latest;
       const oldMessageId = latest.control_message_id;
       const message = oldMessageId ? await channel.messages.fetch(oldMessageId).catch(() => null) : null;
-      if (message) {
+      if (message && !replace) {
         try { await message.edit(payload); return latest; } catch (error) { console.error("[evix-ticket-control-edit-error]", error); }
       }
       try {
         const newMessage = await channel.send(payload);
         const next = await updateTicket(latest.id, { control_message_id: newMessage.id });
-        if (oldMessageId && oldMessageId !== newMessage.id) await channel.messages.delete(oldMessageId, "Evix stale ticket control").catch(() => null);
-        return next ?? { ...latest, control_message_id: newMessage.id };
+        if (!next) {
+          await newMessage.delete("Evix ticket control state persistence failed").catch(() => null);
+          throw new Error("Ticket control message state could not be persisted.");
+        }
+        if (oldMessageId && oldMessageId !== newMessage.id) {
+          await channel.messages.delete(oldMessageId, "Evix replaced ticket control view").catch((error) => {
+            console.error("[evix-ticket-control-old-message-delete-error]", error);
+          });
+        }
+        return next;
       } catch (error) { console.error("[evix-ticket-control-send-error]", error); return latest; }
     });
   }
@@ -455,7 +463,7 @@ export class TicketService {
       await this.refreshControlMessage(
         interaction,
         next,
-        { closed: true, closedBy: closedBy || interaction.user.id },
+        { closed: true, closedBy: closedBy || interaction.user.id, replace: true },
       );
     }
 
@@ -541,7 +549,7 @@ export class TicketService {
 
     void addTicketEvent(next.id, "TICKET_REOPENED", interaction.user.id, { category: target.category.id })
       .catch((error) => console.error("[evix-ticket-reopen-event-error]", error));
-    void this.refreshControlMessage(interaction, next, { welcomeOverride: "This ticket has been reopened." })
+    void this.refreshControlMessage(interaction, next, { welcomeOverride: "This ticket has been reopened.", replace: true })
       .catch((error) => console.error("[evix-ticket-refresh-after-reopen-error]", error));
     void writeTicketLog(interaction.guild, next, "TICKET_REOPENED", interaction.user.id, { category: target.category.id })
       .catch((error) => console.error("[evix-ticket-log-after-reopen-error]", error));
