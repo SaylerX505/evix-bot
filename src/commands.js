@@ -27,7 +27,7 @@ import {
   updatePanelOption,
   upsertGuildSettings,
 } from "./db.js";
-import { assertPanelOptions, parseRoleMentions, truncate, unique, validateModalFields } from "./utils.js";
+import { assertPanelOptions, truncate, unique, validateModalFields } from "./utils.js";
 import { beginPanelStudio } from "./panels.js";
 
 const ADMIN = PermissionFlagsBits.ManageGuild;
@@ -83,10 +83,8 @@ const panelCommand = new SlashCommandBuilder()
     .addStringOption((o) => o.setName("emoji").setDescription("Optional emoji"))
     .addChannelOption((o) => channelOption(o, "category", "Optional category override", [ChannelType.GuildCategory]))
     .addChannelOption((o) => channelOption(o, "closed_category", "Optional closed-category override", [ChannelType.GuildCategory]))
-    .addStringOption((o) => o.setName("staff_roles").setDescription("Optional role mentions separated by spaces"))
-    .addStringOption((o) => o.setName("ping_roles").setDescription("Optional role mentions separated by spaces"))
-    .addStringOption((o) => o.setName("welcome").setDescription("Optional welcome text").setMaxLength(4000))
-    .addStringOption((o) => o.setName("name_template").setDescription("Optional ticket channel template").setMaxLength(90))
+    .addRoleOption((o) => o.setName("staff_roles").setDescription("Optional staff role"))
+    .addRoleOption((o) => o.setName("ping_roles").setDescription("Optional role to ping when a ticket is created"))
     .addStringOption((o) => o.setName("close_behavior").setDescription("Optional close routing behavior").addChoices({ name: "Move", value: "move" }, { name: "Stay", value: "stay" }))
     .addStringOption((o) => o.setName("form").setDescription("Optional JSON modal fields").setMaxLength(4000))
     .addBooleanOption((o) => o.setName("allow_multiple").setDescription("Allow multiple active tickets of this option"))
@@ -99,10 +97,8 @@ const panelCommand = new SlashCommandBuilder()
     .addStringOption((o) => o.setName("emoji").setDescription("Emoji; use - to clear"))
     .addChannelOption((o) => channelOption(o, "category", "Optional category override", [ChannelType.GuildCategory]))
     .addChannelOption((o) => channelOption(o, "closed_category", "Optional closed-category override", [ChannelType.GuildCategory]))
-    .addStringOption((o) => o.setName("staff_roles").setDescription("Role mentions separated by spaces; use - to clear"))
-    .addStringOption((o) => o.setName("ping_roles").setDescription("Role mentions separated by spaces; use - to clear"))
-    .addStringOption((o) => o.setName("welcome").setDescription("Welcome text; use - to clear").setMaxLength(4000))
-    .addStringOption((o) => o.setName("name_template").setDescription("Channel template; use - to restore default").setMaxLength(90))
+    .addRoleOption((o) => o.setName("staff_roles").setDescription("Optional staff role"))
+    .addRoleOption((o) => o.setName("ping_roles").setDescription("Optional role to ping when a ticket is created"))
     .addStringOption((o) => o.setName("close_behavior").setDescription("Close routing behavior").addChoices({ name: "Move", value: "move" }, { name: "Stay", value: "stay" }))
     .addStringOption((o) => o.setName("form").setDescription("Modal fields JSON; use [] to clear").setMaxLength(4000))
     .addBooleanOption((o) => o.setName("allow_multiple").setDescription("Allow multiple active tickets"))
@@ -117,12 +113,6 @@ function ephemeral(content) { return { content, flags: MessageFlags.Ephemeral, a
 async function respond(interaction, payload) { return interaction.deferred || interaction.replied ? interaction.editReply(payload) : interaction.reply(payload); }
 async function validateConfiguredRoles(guild, roleIds) {
   for (const roleId of unique(roleIds)) if (!await guild.roles.fetch(roleId).catch(() => null)) throw new Error("Configured role " + roleId + " was not found in this server.");
-}
-function parseFormInput(raw) {
-  if (raw === null) return [];
-  let parsed;
-  try { parsed = JSON.parse(raw); } catch { throw new Error("The form option must be valid JSON."); }
-  return validateModalFields(parsed);
 }
 async function refreshPanelMessage(guild, panel, ui) {
   if (!panel?.channel_id || !panel?.message_id) return;
@@ -246,46 +236,20 @@ export async function handlePanelCommand(interaction, ui) {
     return respond(interaction, ui.buildAdminEmbed("Panel Deleted", "Panel **" + panel.name + "** has been deleted successfully.", 0xed4245));
   }
 
-  let optionId;
-  try { optionId = BigInt(interaction.options.getString("option", true)); } catch { throw new Error("Option ID must be a valid numeric ID."); }
-  const target = await getPanelOption(optionId, interaction.guildId);
-  if (!target || String(target.panel_id) !== String(panel.id)) throw new Error("Panel option not found.");
-  if (sub === "option-remove") {
-    await deletePanelOption(optionId);
-    const refreshed = await getPanel(interaction.guildId, panel.id);
-    if (refreshed?.options?.length) await refreshPanelMessage(interaction.guild, refreshed, ui);
-    else { await removeStoredPanelMessage(interaction.guild, panel); if (refreshed) await updatePanel(refreshed.id, { channel_id: null, message_id: null }); }
-    return respond(interaction, ui.buildAdminEmbed("Option Removed", "The selected option has been removed successfully.", 0xed4245));
-  }
-
-  const description = interaction.options.getString("description");
-  const emoji = interaction.options.getString("emoji");
-  const category = interaction.options.getChannel("category");
-  const closedCategory = interaction.options.getChannel("closed_category");
-  const staffRolesInput = interaction.options.getString("staff_roles");
-  const pingRolesInput = interaction.options.getString("ping_roles");
-  const welcome = interaction.options.getString("welcome");
-  const nameTemplate = interaction.options.getString("name_template");
-  const closeBehavior = interaction.options.getString("close_behavior");
-  const formInput = interaction.options.getString("form");
-  const allowMultiple = interaction.options.getBoolean("allow_multiple");
-  const transcriptOnClose = interaction.options.getBoolean("transcript_on_close");
-
   if (sub === "option-add") {
     const label = interaction.options.getString("name", true);
     const action = interaction.options.getString("action", true);
-    const staffRoles = unique(parseRoleMentions(staffRolesInput || ""));
-    const pingRoles = unique(parseRoleMentions(pingRolesInput || ""));
-    await validateConfiguredRoles(interaction.guild, [...staffRoles, ...pingRoles]);
-    const options = await listPanelOptions(panel.id);
-    const option = await addPanelOption({ panelId: panel.id, position: options.length, label, description, emoji, action, categoryId: category?.id ?? null, closedCategoryId: closedCategory?.id ?? null, staffRoles, pingRoles, welcomeMessage: welcome ?? "", ticketNameTemplate: nameTemplate || "ticket-{number}", closeBehavior: closeBehavior || "move", allowMultiple: allowMultiple === true, transcriptOnClose: transcriptOnClose !== false, modalFields: parseFormInput(formInput) });
-    const refreshed = await getPanel(interaction.guildId, panel.id);
-    await refreshPanelMessage(interaction.guild, refreshed, ui);
-    return respond(interaction, ui.buildAdminEmbed("Option Created", "Option **" + option.label + "** has been created successfully in panel **" + panel.name + "**.\n\n**Action**\n`" + option.action + "`"));
-  }
-
-  if (sub === "option-edit") {
+    if (sub === "option-edit") {
     const patch = {};
+    const description = interaction.options.getString("description");
+    const emoji = interaction.options.getString("emoji");
+    const category = interaction.options.getChannel("category");
+    const closedCategory = interaction.options.getChannel("closed_category");
+    const staffRole = interaction.options.getRole("staff_roles");
+    const pingRole = interaction.options.getRole("ping_roles");
+    const closeBehavior = interaction.options.getString("close_behavior");
+    const allowMultiple = interaction.options.getBoolean("allow_multiple");
+    const transcriptOnClose = interaction.options.getBoolean("transcript_on_close");
     const action = interaction.options.getString("action");
     const name = interaction.options.getString("name");
     if (name !== null) patch.label = name;
@@ -293,12 +257,9 @@ export async function handlePanelCommand(interaction, ui) {
     if (emoji !== null) patch.emoji = emoji === "-" ? null : emoji;
     if (category) patch.category_id = category.id;
     if (closedCategory) patch.closed_category_id = closedCategory.id;
-    if (staffRolesInput !== null) { const roles = unique(parseRoleMentions(staffRolesInput)); await validateConfiguredRoles(interaction.guild, roles); patch.staff_roles = roles; }
-    if (pingRolesInput !== null) { const roles = unique(parseRoleMentions(pingRolesInput)); await validateConfiguredRoles(interaction.guild, roles); patch.ping_roles = roles; }
-    if (welcome !== null) patch.welcome_message = welcome === "-" ? "" : welcome;
-    if (nameTemplate !== null) patch.ticket_name_template = nameTemplate === "-" ? "ticket-{number}" : nameTemplate;
+    if (staffRole) patch.staff_roles = [staffRole.id];
+    if (pingRole) patch.ping_roles = [pingRole.id];
     if (closeBehavior !== null) patch.close_behavior = closeBehavior;
-    if (formInput !== null) patch.modal_fields = parseFormInput(formInput);
     if (allowMultiple !== null) patch.allow_multiple = allowMultiple;
     if (transcriptOnClose !== null) patch.transcript_on_close = transcriptOnClose;
     if (action !== null) patch.action = action;
