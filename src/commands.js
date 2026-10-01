@@ -1,10 +1,14 @@
 import {
   ChannelType,
+  ContainerBuilder,
   LabelBuilder,
   MessageFlags,
   ModalBuilder,
   PermissionFlagsBits,
+  SeparatorBuilder,
+  SeparatorSpacingSize,
   SlashCommandBuilder,
+  TextDisplayBuilder,
   TextInputBuilder,
   TextInputStyle,
 } from "discord.js";
@@ -23,21 +27,11 @@ import {
   updatePanelOption,
   upsertGuildSettings,
 } from "./db.js";
-import {
-  assertPanelOptions,
-  parseRoleMentions,
-  unique,
-  validateModalFields,
-} from "./utils.js";
+import { assertPanelOptions, parseRoleMentions, unique, validateModalFields } from "./utils.js";
 import { beginPanelStudio } from "./panels.js";
 
 const ADMIN = PermissionFlagsBits.ManageGuild;
-
-const channelOption = (option, name, description, types) =>
-  option
-    .setName(name)
-    .setDescription(description)
-    .addChannelTypes(...types);
+const channelOption = (option, name, description, types) => option.setName(name).setDescription(description).addChannelTypes(...types);
 
 const ticketCommand = new SlashCommandBuilder()
   .setName("ticket")
@@ -49,14 +43,13 @@ const ticketCommand = new SlashCommandBuilder()
   .addSubcommand((s) => s.setName("claim").setDescription("Claim the current ticket"))
   .addSubcommand((s) => s.setName("unclaim").setDescription("Unclaim the current ticket"))
   .addSubcommand((s) => s.setName("waiting").setDescription("Move the ticket to waiting or resume it"))
-  .addSubcommand((s) => s.setName("add").setDescription("Add a member to the current ticket")
-    .addUserOption((o) => o.setName("user").setDescription("Member to add").setRequired(true)))
+  .addSubcommand((s) => s.setName("add").setDescription("Add a user or role to the current ticket")
+    .addUserOption((o) => o.setName("user").setDescription("Member to add"))
+    .addRoleOption((o) => o.setName("role").setDescription("Role to add")))
   .addSubcommand((s) => s.setName("remove").setDescription("Remove a member from the current ticket")
     .addUserOption((o) => o.setName("user").setDescription("Member to remove").setRequired(true)))
   .addSubcommand((s) => s.setName("rename").setDescription("Rename the current ticket")
     .addStringOption((o) => o.setName("name").setDescription("New channel name").setRequired(true).setMaxLength(90)))
-  .addSubcommand((s) => s.setName("lock").setDescription("Lock the current ticket"))
-  .addSubcommand((s) => s.setName("unlock").setDescription("Unlock the current ticket"))
   .addSubcommand((s) => s.setName("delete").setDescription("Delete the current ticket"))
   .addSubcommand((s) => s.setName("setup").setDescription("Configure ticket categories")
     .addChannelOption((o) => channelOption(o, "tickets_category", "Main ticket category", [ChannelType.GuildCategory]).setRequired(true))
@@ -75,20 +68,13 @@ const ticketCommand = new SlashCommandBuilder()
   .setDMPermission(false);
 
 const panelCommand = new SlashCommandBuilder()
-  .setName("panel")
-  .setDescription("Manage Evix ticket panels")
-  .addSubcommand((s) => s.setName("create").setDescription("Create a ready-to-edit ticket panel")
-    .addStringOption((o) => o.setName("name").setDescription("Panel name").setRequired(true).setMinLength(1).setMaxLength(40)))
-  .addSubcommand((s) => s.setName("edit").setDescription("Open the panel studio")
-    .addStringOption((o) => o.setName("panel").setDescription("Panel name or ID").setRequired(true)))
+  .setName("panel").setDescription("Manage Evix ticket panels")
+  .addSubcommand((s) => s.setName("create").setDescription("Create a ready-to-edit ticket panel").addStringOption((o) => o.setName("name").setDescription("Panel name").setRequired(true).setMinLength(1).setMaxLength(40)))
+  .addSubcommand((s) => s.setName("edit").setDescription("Open the panel studio").addStringOption((o) => o.setName("panel").setDescription("Panel name or ID").setRequired(true)))
   .addSubcommand((s) => s.setName("list").setDescription("List ticket panels"))
-  .addSubcommand((s) => s.setName("send").setDescription("Send a ticket panel")
-    .addStringOption((o) => o.setName("panel").setDescription("Panel name or ID").setRequired(true))
-    .addChannelOption((o) => channelOption(o, "channel", "Destination text channel", [ChannelType.GuildText]).setRequired(true)))
-  .addSubcommand((s) => s.setName("reset").setDescription("Reset a panel to its ready default")
-    .addStringOption((o) => o.setName("panel").setDescription("Panel name or ID").setRequired(true)))
-  .addSubcommand((s) => s.setName("delete").setDescription("Delete a ticket panel")
-    .addStringOption((o) => o.setName("panel").setDescription("Panel name or ID").setRequired(true)))
+  .addSubcommand((s) => s.setName("send").setDescription("Send a ticket panel").addStringOption((o) => o.setName("panel").setDescription("Panel name or ID").setRequired(true)).addChannelOption((o) => channelOption(o, "channel", "Destination text channel", [ChannelType.GuildText]).setRequired(true)))
+  .addSubcommand((s) => s.setName("reset").setDescription("Reset a panel to its ready default").addStringOption((o) => o.setName("panel").setDescription("Panel name or ID").setRequired(true)))
+  .addSubcommand((s) => s.setName("delete").setDescription("Delete a ticket panel").addStringOption((o) => o.setName("panel").setDescription("Panel name or ID").setRequired(true)))
   .addSubcommand((s) => s.setName("option-add").setDescription("Add a ticket option to a panel")
     .addStringOption((o) => o.setName("panel").setDescription("Panel name or ID").setRequired(true))
     .addStringOption((o) => o.setName("name").setDescription("Dropdown option name").setRequired(true).setMaxLength(80))
@@ -100,8 +86,7 @@ const panelCommand = new SlashCommandBuilder()
     .addStringOption((o) => o.setName("ping_roles").setDescription("Optional role mentions separated by spaces"))
     .addStringOption((o) => o.setName("welcome").setDescription("Optional welcome text").setMaxLength(4000))
     .addStringOption((o) => o.setName("name_template").setDescription("Optional ticket channel template").setMaxLength(90))
-    .addStringOption((o) => o.setName("close_behavior").setDescription("Optional close routing behavior")
-      .addChoices({ name: "Move", value: "move" }, { name: "Stay", value: "stay" }))
+    .addStringOption((o) => o.setName("close_behavior").setDescription("Optional close routing behavior").addChoices({ name: "Move", value: "move" }, { name: "Stay", value: "stay" }))
     .addStringOption((o) => o.setName("form").setDescription("Optional JSON modal fields").setMaxLength(4000))
     .addBooleanOption((o) => o.setName("allow_multiple").setDescription("Allow multiple active tickets of this option"))
     .addBooleanOption((o) => o.setName("transcript_on_close").setDescription("Create a transcript on close")))
@@ -117,61 +102,32 @@ const panelCommand = new SlashCommandBuilder()
     .addStringOption((o) => o.setName("ping_roles").setDescription("Role mentions separated by spaces; use - to clear"))
     .addStringOption((o) => o.setName("welcome").setDescription("Welcome text; use - to clear").setMaxLength(4000))
     .addStringOption((o) => o.setName("name_template").setDescription("Channel template; use - to restore default").setMaxLength(90))
-    .addStringOption((o) => o.setName("close_behavior").setDescription("Close routing behavior")
-      .addChoices({ name: "Move", value: "move" }, { name: "Stay", value: "stay" }))
+    .addStringOption((o) => o.setName("close_behavior").setDescription("Close routing behavior").addChoices({ name: "Move", value: "move" }, { name: "Stay", value: "stay" }))
     .addStringOption((o) => o.setName("form").setDescription("Modal fields JSON; use [] to clear").setMaxLength(4000))
     .addBooleanOption((o) => o.setName("allow_multiple").setDescription("Allow multiple active tickets"))
     .addBooleanOption((o) => o.setName("transcript_on_close").setDescription("Create a transcript on close")))
-  .addSubcommand((s) => s.setName("option-remove").setDescription("Remove a ticket option")
-    .addStringOption((o) => o.setName("panel").setDescription("Panel name or ID").setRequired(true))
-    .addStringOption((o) => o.setName("option").setDescription("Option ID").setRequired(true)))
+  .addSubcommand((s) => s.setName("option-remove").setDescription("Remove a ticket option").addStringOption((o) => o.setName("panel").setDescription("Panel name or ID").setRequired(true)).addStringOption((o) => o.setName("option").setDescription("Option ID").setRequired(true)))
   .setDMPermission(false);
 
 export const commands = [ticketCommand, panelCommand];
 
-function ephemeral(content) {
-  return { content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } };
-}
-
+function ephemeral(content) { return { content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } }; }
 async function validateConfiguredRoles(guild, roleIds) {
-  for (const roleId of unique(roleIds)) {
-    const role = await guild.roles.fetch(roleId).catch(() => null);
-    if (!role) throw new Error("Configured role " + roleId + " was not found in this server.");
-  }
+  for (const roleId of unique(roleIds)) if (!await guild.roles.fetch(roleId).catch(() => null)) throw new Error("Configured role " + roleId + " was not found in this server.");
 }
-
 function parseFormInput(raw) {
   if (raw === null) return [];
   let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new Error("The form option must be valid JSON.");
-  }
+  try { parsed = JSON.parse(raw); } catch { throw new Error("The form option must be valid JSON."); }
   return validateModalFields(parsed);
 }
-
-function clearable(value, fallback = null) {
-  if (value === null) return undefined;
-  if (value === "-") return fallback;
-  return value;
-}
-
 async function refreshPanelMessage(guild, panel, ui) {
   if (!panel?.channel_id || !panel?.message_id) return;
   const channel = await guild.channels.fetch(panel.channel_id).catch(() => null);
   const message = await channel?.messages.fetch(panel.message_id).catch(() => null);
-  if (!message) {
-    await updatePanel(panel.id, { channel_id: null, message_id: null }).catch(() => null);
-    return;
-  }
-  try {
-    await message.edit(ui.buildPanelMessage(panel, guild.client.user));
-  } catch (error) {
-    console.error("[evix-panel-refresh-error]", error);
-  }
+  if (!message) { await updatePanel(panel.id, { channel_id: null, message_id: null }).catch(() => null); return; }
+  await message.edit(ui.buildPanelMessage(panel, guild.client.user)).catch((error) => console.error("[evix-panel-refresh-error]", error));
 }
-
 async function removeStoredPanelMessage(guild, panel) {
   if (!panel?.channel_id || !panel?.message_id) return;
   const channel = await guild.channels.fetch(panel.channel_id).catch(() => null);
@@ -181,10 +137,7 @@ async function removeStoredPanelMessage(guild, panel) {
 
 export async function handleTicketCommand(interaction, service, ui) {
   const sub = interaction.options.getSubcommand();
-
-  if (["setup", "config", "logs"].includes(sub) && !interaction.memberPermissions?.has(ADMIN)) {
-    throw new Error("You need Manage Server to use this command.");
-  }
+  if (["setup", "config", "logs"].includes(sub) && !interaction.memberPermissions?.has(ADMIN)) throw new Error("You need Manage Server to use this command.");
 
   if (sub === "setup") {
     const current = await getGuildSettings(interaction.guildId) ?? {};
@@ -197,22 +150,13 @@ export async function handleTicketCommand(interaction, service, ui) {
       closed_category_id: interaction.options.getChannel("closed_category")?.id ?? current.closed_category_id ?? null,
       default_ticket_limit: interaction.options.getInteger("ticket_limit") ?? current.default_ticket_limit ?? 1,
     });
-    return interaction.reply({
-      ...ui.buildSetupSummary(saved),
-      flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
-    });
+    return interaction.reply({ ...ui.buildSetupSummary(saved), flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2 });
   }
-
   if (sub === "config") {
     const settings = await getGuildSettings(interaction.guildId);
     const panels = await listPanels(interaction.guildId);
-    return interaction.reply({
-      ...ui.buildSetupSummary(settings),
-      content: "Panels configured: " + panels.length,
-      flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
-    });
+    return interaction.reply({ ...ui.buildSetupSummary({ ...(settings ?? {}), panels_count: panels.length }), flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2 });
   }
-
   if (sub === "logs") {
     const current = await getGuildSettings(interaction.guildId) ?? {};
     const ticketChannel = interaction.options.getChannel("ticket_channel");
@@ -221,45 +165,39 @@ export async function handleTicketCommand(interaction, service, ui) {
     const disableTicket = interaction.options.getBoolean("disable_ticket") === true;
     const disableModeration = interaction.options.getBoolean("disable_moderation") === true;
     const disableTranscript = interaction.options.getBoolean("disable_transcript") === true;
-
     if (disableTicket && ticketChannel) throw new Error("Choose either a ticket log channel or disable ticket logs.");
     if (disableModeration && moderationChannel) throw new Error("Choose either a moderation log channel or disable moderation logs.");
     if (disableTranscript && transcriptChannel) throw new Error("Choose either a transcript log channel or disable transcript logs.");
-
     const saved = await upsertGuildSettings(interaction.guildId, {
       ticket_log_channel_id: disableTicket ? null : (ticketChannel?.id ?? current.ticket_log_channel_id ?? current.log_channel_id ?? null),
       moderation_log_channel_id: disableModeration ? null : (moderationChannel?.id ?? current.moderation_log_channel_id ?? null),
       transcript_log_channel_id: disableTranscript ? (current.transcript_log_channel_id ?? current.transcript_channel_id ?? null) : (transcriptChannel?.id ?? current.transcript_log_channel_id ?? current.transcript_channel_id ?? null),
-      ticket_logs_enabled: disableTicket ? false : (ticketChannel ? true : (current.ticket_logs_enabled !== false)),
-      moderation_logs_enabled: disableModeration ? false : (moderationChannel ? true : (current.moderation_logs_enabled !== false)),
-      transcript_logs_enabled: disableTranscript ? false : (transcriptChannel ? true : (current.transcript_logs_enabled !== false)),
+      ticket_logs_enabled: disableTicket ? false : (ticketChannel ? true : current.ticket_logs_enabled !== false),
+      moderation_logs_enabled: disableModeration ? false : (moderationChannel ? true : current.moderation_logs_enabled !== false),
+      transcript_logs_enabled: disableTranscript ? false : (transcriptChannel ? true : current.transcript_logs_enabled !== false),
       log_channel_id: disableTicket ? (current.log_channel_id ?? current.ticket_log_channel_id ?? null) : (ticketChannel?.id ?? current.log_channel_id ?? current.ticket_log_channel_id ?? null),
       transcript_channel_id: disableTranscript ? (current.transcript_channel_id ?? current.transcript_log_channel_id ?? null) : (transcriptChannel?.id ?? current.transcript_channel_id ?? current.transcript_log_channel_id ?? null),
     });
-
-    return interaction.reply(ephemeral(
-      [
-        "Ticket logs: " + (saved.ticket_log_channel_id ? "<#" + saved.ticket_log_channel_id + ">" : "off"),
-        "Moderation logs: " + (saved.moderation_log_channel_id ? "<#" + saved.moderation_log_channel_id + ">" : "off"),
-        "Transcript logs: " + (saved.transcript_log_channel_id ? "<#" + saved.transcript_log_channel_id + ">" : "off"),
-      ].join("\n"),
-    ));
+    return interaction.reply(ephemeral(["Ticket logs: " + (saved.ticket_log_channel_id ? "<#" + saved.ticket_log_channel_id + ">" : "off"), "Moderation logs: " + (saved.moderation_log_channel_id ? "<#" + saved.moderation_log_channel_id + ">" : "off"), "Transcript logs: " + (saved.transcript_log_channel_id ? "<#" + saved.transcript_log_channel_id + ">" : "off")].join("\n")));
   }
 
   const ticket = await service.getTicket(interaction);
   switch (sub) {
     case "info": return service.info(interaction, ticket);
     case "transcript": return service.sendTranscript(interaction, ticket);
-    case "close": return service.close(interaction, ticket);
+    case "close": return service.requestClose(interaction, ticket);
     case "reopen": return service.reopen(interaction, ticket);
     case "claim": return service.claim(interaction, ticket);
     case "unclaim": return service.unclaim(interaction, ticket);
     case "waiting": return service.waiting(interaction, ticket);
-    case "add": return service.addMember(interaction, ticket, interaction.options.getUser("user", true).id);
+    case "add": {
+      const user = interaction.options.getUser("user");
+      const role = interaction.options.getRole("role");
+      if (Boolean(user) === Boolean(role)) throw new Error("Choose either a user or a role.");
+      return user ? service.addMember(interaction, ticket, user.id) : service.addRole(interaction, ticket, role.id);
+    }
     case "remove": return service.removeMember(interaction, ticket, interaction.options.getUser("user", true).id);
     case "rename": return service.rename(interaction, ticket, interaction.options.getString("name", true));
-    case "lock": return service.lock(interaction, ticket);
-    case "unlock": return service.unlock(interaction, ticket);
     case "delete": return service.requestDelete(interaction, ticket);
     default: throw new Error("Unknown ticket subcommand.");
   }
@@ -267,82 +205,40 @@ export async function handleTicketCommand(interaction, service, ui) {
 
 async function handlePanelList(interaction) {
   const panels = await listPanels(interaction.guildId);
-  const { ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize } = await import("discord.js");
-  const lines = panels.length
-    ? panels.map((panel) => "**" + panel.name + "** · ID " + panel.id).join("\n")
-    : "No panels created yet. Use /panel create.";
-  const container = new ContainerBuilder()
-    .setAccentColor(0x5865f2)
-    .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent("# Evix Panels"),
-      new TextDisplayBuilder().setContent(lines),
-    )
-    .addSeparatorComponents(
-      new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
-    )
-    .addTextDisplayComponents(new TextDisplayBuilder().setContent("-# Evix 1.0.2"));
-  return interaction.reply({
-    components: [container],
-    flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
-    allowedMentions: { parse: [] },
-  });
+  const container = new ContainerBuilder().setAccentColor(0x5865f2).addTextDisplayComponents(
+    new TextDisplayBuilder().setContent("# Evix Panels"),
+    new TextDisplayBuilder().setContent(panels.length ? panels.map((panel) => "**" + panel.name + "** · ID " + panel.id).join("\n") : "No panels created yet. Use /panel create."),
+  ).addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+  return interaction.reply({ components: [container], flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
 }
 
 export async function handlePanelCommand(interaction, ui) {
-  if (!interaction.memberPermissions?.has(ADMIN)) {
-    throw new Error("You need Manage Server to manage ticket panels.");
-  }
-
+  if (!interaction.memberPermissions?.has(ADMIN)) throw new Error("You need Manage Server to manage ticket panels.");
   const sub = interaction.options.getSubcommand();
-
-  if (sub === "list") return handlePanelList(interaction, ui);
-
+  if (sub === "list") return handlePanelList(interaction);
   const panelInput = interaction.options.getString("panel", false);
   if (sub === "create") {
-    const panel = await createPanel({
-      guildId: interaction.guildId,
-      name: interaction.options.getString("name", true),
-      title: "",
-      description: "",
-      footer: "",
-      imageUrl: null,
-      placeholder: "",
-      accentColor: 0x5865f2,
-      footerShowBot: false,
-      withDefaultOption: true,
-    });
+    const panel = await createPanel({ guildId: interaction.guildId, name: interaction.options.getString("name", true), title: "", description: "", footer: "", imageUrl: null, placeholder: "", accentColor: 0x5865f2, footerShowBot: false, withDefaultOption: true });
     return beginPanelStudio(interaction, panel);
   }
-
   const panel = await getPanel(interaction.guildId, panelInput);
   if (!panel) throw new Error("Panel not found.");
-
   if (sub === "edit") return beginPanelStudio(interaction, panel);
-
   if (sub === "send") {
     assertPanelOptions(panel.options);
     const channel = interaction.options.getChannel("channel", true);
     const previous = { channel_id: panel.channel_id, message_id: panel.message_id };
     const message = await channel.send(ui.buildPanelMessage(panel, interaction.client.user));
-    try {
-      await updatePanel(panel.id, { channel_id: channel.id, message_id: message.id });
-    } catch (error) {
-      await message.delete("Evix panel pointer update failed").catch(() => null);
-      throw error;
-    }
-    if (previous.message_id && previous.message_id !== message.id) {
-      await removeStoredPanelMessage(interaction.guild, previous);
-    }
+    try { await updatePanel(panel.id, { channel_id: channel.id, message_id: message.id }); } catch (error) { await message.delete("Evix panel pointer update failed").catch(() => null); throw error; }
+    if (previous.message_id && previous.message_id !== message.id) await removeStoredPanelMessage(interaction.guild, previous);
     return interaction.reply(ephemeral("Panel sent to <#" + channel.id + ">."));
   }
-
   if (sub === "reset") {
     const previous = { channel_id: panel.channel_id, message_id: panel.message_id };
     const reset = await resetPanel(panel.id);
     if (previous.message_id) await removeStoredPanelMessage(interaction.guild, previous);
     return interaction.reply(ephemeral("Panel " + reset.name + " was reset to its ready default."));
   }
-
   if (sub === "delete") {
     const previous = { channel_id: panel.channel_id, message_id: panel.message_id };
     await deletePanel(panel.id);
@@ -350,32 +246,18 @@ export async function handlePanelCommand(interaction, ui) {
     return interaction.reply(ephemeral("Panel " + panel.name + " deleted."));
   }
 
-  const optionInput = interaction.options.getString("option", true);
   let optionId;
-  try {
-    optionId = BigInt(optionInput);
-  } catch {
-    throw new Error("Option ID must be a valid numeric ID.");
-  }
-
+  try { optionId = BigInt(interaction.options.getString("option", true)); } catch { throw new Error("Option ID must be a valid numeric ID."); }
   const target = await getPanelOption(optionId, interaction.guildId);
-  if (!target || String(target.panel_id) !== String(panel.id)) {
-    throw new Error("Panel option not found.");
-  }
-
+  if (!target || String(target.panel_id) !== String(panel.id)) throw new Error("Panel option not found.");
   if (sub === "option-remove") {
     await deletePanelOption(optionId);
     const refreshed = await getPanel(interaction.guildId, panel.id);
-    if (refreshed?.options?.length) {
-      await refreshPanelMessage(interaction.guild, refreshed, ui);
-    } else {
-      await removeStoredPanelMessage(interaction.guild, panel);
-      if (refreshed) await updatePanel(refreshed.id, { channel_id: null, message_id: null });
-    }
+    if (refreshed?.options?.length) await refreshPanelMessage(interaction.guild, refreshed, ui);
+    else { await removeStoredPanelMessage(interaction.guild, panel); if (refreshed) await updatePanel(refreshed.id, { channel_id: null, message_id: null }); }
     return interaction.reply(ephemeral("Ticket option removed."));
   }
 
-  const defaults = await getGuildSettings(interaction.guildId);
   const description = interaction.options.getString("description");
   const emoji = interaction.options.getString("emoji");
   const category = interaction.options.getChannel("category");
@@ -394,26 +276,8 @@ export async function handlePanelCommand(interaction, ui) {
     const staffRoles = unique(parseRoleMentions(staffRolesInput || ""));
     const pingRoles = unique(parseRoleMentions(pingRolesInput || ""));
     await validateConfiguredRoles(interaction.guild, [...staffRoles, ...pingRoles]);
-
     const options = await listPanelOptions(panel.id);
-    const option = await addPanelOption({
-      panelId: panel.id,
-      position: options.length,
-      label,
-      description,
-      emoji,
-      categoryId: category?.id ?? null,
-      closedCategoryId: closedCategory?.id ?? null,
-      staffRoles,
-      pingRoles,
-      welcomeMessage: welcome ?? "",
-      ticketNameTemplate: nameTemplate || "ticket-{number}",
-      closeBehavior: closeBehavior || "move",
-      allowMultiple: allowMultiple === true,
-      transcriptOnClose: transcriptOnClose !== false,
-      modalFields: parseFormInput(formInput),
-    });
-
+    const option = await addPanelOption({ panelId: panel.id, position: options.length, label, description, emoji, categoryId: category?.id ?? null, closedCategoryId: closedCategory?.id ?? null, staffRoles, pingRoles, welcomeMessage: welcome ?? "", ticketNameTemplate: nameTemplate || "ticket-{number}", closeBehavior: closeBehavior || "move", allowMultiple: allowMultiple === true, transcriptOnClose: transcriptOnClose !== false, modalFields: parseFormInput(formInput) });
     const refreshed = await getPanel(interaction.guildId, panel.id);
     await refreshPanelMessage(interaction.guild, refreshed, ui);
     return interaction.reply(ephemeral("Ticket option " + option.label + " created. ID " + option.id + "."));
@@ -427,69 +291,33 @@ export async function handlePanelCommand(interaction, ui) {
     if (emoji !== null) patch.emoji = emoji === "-" ? null : emoji;
     if (category) patch.category_id = category.id;
     if (closedCategory) patch.closed_category_id = closedCategory.id;
-    if (staffRolesInput !== null) {
-      const roles = unique(parseRoleMentions(staffRolesInput));
-      await validateConfiguredRoles(interaction.guild, roles);
-      patch.staff_roles = roles;
-    }
-    if (pingRolesInput !== null) {
-      const roles = unique(parseRoleMentions(pingRolesInput));
-      await validateConfiguredRoles(interaction.guild, roles);
-      patch.ping_roles = roles;
-    }
+    if (staffRolesInput !== null) { const roles = unique(parseRoleMentions(staffRolesInput)); await validateConfiguredRoles(interaction.guild, roles); patch.staff_roles = roles; }
+    if (pingRolesInput !== null) { const roles = unique(parseRoleMentions(pingRolesInput)); await validateConfiguredRoles(interaction.guild, roles); patch.ping_roles = roles; }
     if (welcome !== null) patch.welcome_message = welcome === "-" ? "" : welcome;
     if (nameTemplate !== null) patch.ticket_name_template = nameTemplate === "-" ? "ticket-{number}" : nameTemplate;
     if (closeBehavior !== null) patch.close_behavior = closeBehavior;
     if (formInput !== null) patch.modal_fields = parseFormInput(formInput);
     if (allowMultiple !== null) patch.allow_multiple = allowMultiple;
     if (transcriptOnClose !== null) patch.transcript_on_close = transcriptOnClose;
-
     const updated = Object.keys(patch).length ? await updatePanelOption(optionId, patch) : target;
     const refreshed = await getPanel(interaction.guildId, panel.id);
     await refreshPanelMessage(interaction.guild, refreshed, ui);
     return interaction.reply(ephemeral("Ticket option " + updated.label + " updated."));
   }
-
   throw new Error("Unknown panel action.");
 }
 
-export function buildAddUserModal(ticketId) {
-  const input = new TextInputBuilder()
-    .setCustomId("user")
-    .setStyle(TextInputStyle.Short)
-    .setPlaceholder("<@123456789012345678>")
-    .setRequired(true)
-    .setMaxLength(30);
-  return new ModalBuilder()
-    .setCustomId("evix:add-user:" + ticketId)
-    .setTitle("Add user to ticket")
-    .addLabelComponents(new LabelBuilder().setLabel("User ID or mention").setTextInputComponent(input));
-}
-
 export function buildRenameModal(ticketId) {
-  const input = new TextInputBuilder()
-    .setCustomId("name")
-    .setStyle(TextInputStyle.Short)
-    .setPlaceholder("billing-help")
-    .setRequired(true)
-    .setMaxLength(90);
-  return new ModalBuilder()
-    .setCustomId("evix:rename:" + ticketId)
-    .setTitle("Rename ticket")
-    .addLabelComponents(new LabelBuilder().setLabel("New ticket name").setTextInputComponent(input));
+  const input = new TextInputBuilder().setCustomId("name").setStyle(TextInputStyle.Short).setPlaceholder("billing-help").setRequired(true).setMaxLength(90);
+  return new ModalBuilder().setCustomId("evix:rename:" + ticketId).setTitle("Rename ticket").addLabelComponents(new LabelBuilder().setLabel("New ticket name").setTextInputComponent(input));
 }
 
 export function buildTicketModal(option) {
   const fields = validateModalFields(option.modal_fields);
   if (!fields.length) return null;
-  const modal = new ModalBuilder()
-    .setCustomId("evix:modal:" + option.id)
-    .setTitle(String(option.label || "Ticket").slice(0, 45));
+  const modal = new ModalBuilder().setCustomId("evix:modal:" + option.id).setTitle(String(option.label || "Ticket").slice(0, 45));
   for (const field of fields) {
-    const input = new TextInputBuilder()
-      .setCustomId(field.id)
-      .setStyle(field.style === "paragraph" ? TextInputStyle.Paragraph : TextInputStyle.Short)
-      .setRequired(field.required);
+    const input = new TextInputBuilder().setCustomId(field.id).setStyle(field.style === "paragraph" ? TextInputStyle.Paragraph : TextInputStyle.Short).setRequired(field.required);
     if (field.placeholder) input.setPlaceholder(field.placeholder);
     modal.addLabelComponents(new LabelBuilder().setLabel(field.label).setTextInputComponent(input));
   }
