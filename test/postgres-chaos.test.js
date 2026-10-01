@@ -123,7 +123,10 @@ function installChaos({ seed, delayProbability = 0.15, failProbability = 0.02, k
   };
 }
 
-test("isolated PostgreSQL chaos audit: transactions, concurrency, failure recovery, and invariants", { timeout: 180_000 }, async () => {
+test("isolated PostgreSQL chaos audit: transactions, concurrency, failure recovery, and invariants", {
+  timeout: 180_000,
+  skip: !DATABASE_URL,
+}, async () => {
   if (!DATABASE_URL) {
     throw new Error("CHAOS_DATABASE_URL is required; this audit must never fall back to a non-isolated database.");
   }
