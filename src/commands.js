@@ -147,12 +147,12 @@ export async function handleTicketCommand(interaction, service, ui) {
       closed_category_id: interaction.options.getChannel("closed_category")?.id ?? current.closed_category_id ?? null,
       default_ticket_limit: interaction.options.getInteger("ticket_limit") ?? current.default_ticket_limit ?? 1,
     });
-    return interaction.reply({ ...ui.buildSetupSummary(saved), flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2 });
+    return respond(interaction, { ...ui.buildSetupSummary(saved), flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2 });
   }
   if (sub === "config") {
     const settings = await getGuildSettings(interaction.guildId);
     const panels = await listPanels(interaction.guildId);
-    return interaction.reply({ ...ui.buildSetupSummary({ ...(settings ?? {}), panels_count: panels.length }), flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2 });
+    return respond(interaction, { ...ui.buildSetupSummary({ ...(settings ?? {}), panels_count: panels.length }), flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2 });
   }
   if (sub === "logs") {
     const current = await getGuildSettings(interaction.guildId) ?? {};
@@ -175,7 +175,7 @@ export async function handleTicketCommand(interaction, service, ui) {
       log_channel_id: disableTicket ? (current.log_channel_id ?? current.ticket_log_channel_id ?? null) : (ticketChannel?.id ?? current.log_channel_id ?? current.ticket_log_channel_id ?? null),
       transcript_channel_id: disableTranscript ? (current.transcript_channel_id ?? current.transcript_log_channel_id ?? null) : (transcriptChannel?.id ?? current.transcript_channel_id ?? current.transcript_log_channel_id ?? null),
     });
-    return interaction.reply(ephemeral(["Ticket logs: " + (saved.ticket_log_channel_id ? "<#" + saved.ticket_log_channel_id + ">" : "off"), "Moderation logs: " + (saved.moderation_log_channel_id ? "<#" + saved.moderation_log_channel_id + ">" : "off"), "Transcript logs: " + (saved.transcript_log_channel_id ? "<#" + saved.transcript_log_channel_id + ">" : "off")].join("\n")));
+    return respond(interaction, ephemeral(["Ticket logs: " + (saved.ticket_log_channel_id ? "<#" + saved.ticket_log_channel_id + ">" : "off"), "Moderation logs: " + (saved.moderation_log_channel_id ? "<#" + saved.moderation_log_channel_id + ">" : "off"), "Transcript logs: " + (saved.transcript_log_channel_id ? "<#" + saved.transcript_log_channel_id + ">" : "off")].join("\n")));
   }
 
   const ticket = await service.getTicket(interaction);
