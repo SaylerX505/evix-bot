@@ -26,7 +26,6 @@ export async function initDatabase(databaseUrl) {
       open_category_id TEXT,
       ticket_category_id TEXT,
       backup_category_id TEXT,
-      waiting_category_id TEXT,
       closed_category_id TEXT,
       log_channel_id TEXT,
       ticket_log_channel_id TEXT,
@@ -153,7 +152,6 @@ export async function initDatabase(databaseUrl) {
   await pool.query(`
     ALTER TABLE guild_ticket_settings ADD COLUMN IF NOT EXISTS ticket_category_id TEXT;
     ALTER TABLE guild_ticket_settings ADD COLUMN IF NOT EXISTS backup_category_id TEXT;
-    ALTER TABLE guild_ticket_settings ADD COLUMN IF NOT EXISTS waiting_category_id TEXT;
     ALTER TABLE guild_ticket_settings ADD COLUMN IF NOT EXISTS ticket_log_channel_id TEXT;
     ALTER TABLE guild_ticket_settings ADD COLUMN IF NOT EXISTS moderation_log_channel_id TEXT;
     ALTER TABLE guild_ticket_settings ADD COLUMN IF NOT EXISTS transcript_log_channel_id TEXT;
@@ -174,7 +172,6 @@ export async function initDatabase(databaseUrl) {
     ALTER TABLE tickets ADD COLUMN IF NOT EXISTS ticket_log_channel_id TEXT;
     ALTER TABLE tickets ADD COLUMN IF NOT EXISTS moderation_log_channel_id TEXT;
     ALTER TABLE tickets ADD COLUMN IF NOT EXISTS transcript_log_channel_id TEXT;
-    ALTER TABLE tickets ADD COLUMN IF NOT EXISTS waiting_at TIMESTAMPTZ;
     ALTER TABLE tickets ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ;
     ALTER TABLE tickets ADD COLUMN IF NOT EXISTS closed_by TEXT;
     ALTER TABLE tickets ADD COLUMN IF NOT EXISTS ticket_logs_enabled BOOLEAN NOT NULL DEFAULT TRUE;
@@ -210,11 +207,15 @@ export async function initDatabase(databaseUrl) {
     DROP INDEX IF EXISTS tickets_one_active_per_type;
     CREATE UNIQUE INDEX IF NOT EXISTS tickets_one_active_dedupe_idx
       ON tickets (guild_id, owner_id, option_id, dedupe_key)
-      WHERE status IN ('open','locked','waiting') AND dedupe_key IS NOT NULL;
+      WHERE status IN ('open','locked') AND dedupe_key IS NOT NULL;
 
     ALTER TABLE tickets DROP CONSTRAINT IF EXISTS tickets_status_check;
     ALTER TABLE tickets ADD CONSTRAINT tickets_status_check
-      CHECK (status IN ('open','locked','waiting','closed','deleted'));
+      CHECK (status IN ('open','locked','closed','deleted'));
+
+    UPDATE tickets SET status = 'open', waiting_at = NULL WHERE status = 'waiting';
+    ALTER TABLE guild_ticket_settings DROP COLUMN IF EXISTS waiting_category_id;
+    ALTER TABLE tickets DROP COLUMN IF EXISTS waiting_at;
 
     ALTER TABLE ticket_panels DROP CONSTRAINT IF EXISTS ticket_panels_component_mode_check;
     ALTER TABLE ticket_panels ADD CONSTRAINT ticket_panels_component_mode_check
@@ -324,7 +325,6 @@ export async function upsertGuildSettings(guildId, patch) {
       open_category_id: null,
       ticket_category_id: null,
       backup_category_id: null,
-      waiting_category_id: null,
       closed_category_id: null,
       log_channel_id: null,
       ticket_log_channel_id: null,
@@ -346,15 +346,14 @@ export async function upsertGuildSettings(guildId, patch) {
     next.transcript_channel_id = next.transcript_log_channel_id;
 
     const { rows } = await client.query(
-      "INSERT INTO guild_ticket_settings (guild_id,open_category_id,ticket_category_id,backup_category_id,waiting_category_id,closed_category_id,log_channel_id,ticket_log_channel_id,moderation_log_channel_id,transcript_channel_id,transcript_log_channel_id,ticket_logs_enabled,moderation_logs_enabled,transcript_logs_enabled,default_ticket_limit,updated_at) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW()) " +
-      "ON CONFLICT (guild_id) DO UPDATE SET open_category_id=EXCLUDED.open_category_id,ticket_category_id=EXCLUDED.ticket_category_id,backup_category_id=EXCLUDED.backup_category_id,waiting_category_id=EXCLUDED.waiting_category_id,closed_category_id=EXCLUDED.closed_category_id,log_channel_id=EXCLUDED.log_channel_id,ticket_log_channel_id=EXCLUDED.ticket_log_channel_id,moderation_log_channel_id=EXCLUDED.moderation_log_channel_id,transcript_channel_id=EXCLUDED.transcript_channel_id,transcript_log_channel_id=EXCLUDED.transcript_log_channel_id,ticket_logs_enabled=EXCLUDED.ticket_logs_enabled,moderation_logs_enabled=EXCLUDED.moderation_logs_enabled,transcript_logs_enabled=EXCLUDED.transcript_logs_enabled,default_ticket_limit=EXCLUDED.default_ticket_limit,updated_at=NOW() RETURNING *",
+      "INSERT INTO guild_ticket_settings (guild_id,open_category_id,ticket_category_id,backup_category_id,closed_category_id,log_channel_id,ticket_log_channel_id,moderation_log_channel_id,transcript_channel_id,transcript_log_channel_id,ticket_logs_enabled,moderation_logs_enabled,transcript_logs_enabled,default_ticket_limit,updated_at) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW()) " +
+      "ON CONFLICT (guild_id) DO UPDATE SET open_category_id=EXCLUDED.open_category_id,ticket_category_id=EXCLUDED.ticket_category_id,backup_category_id=EXCLUDED.backup_category_id,closed_category_id=EXCLUDED.closed_category_id,log_channel_id=EXCLUDED.log_channel_id,ticket_log_channel_id=EXCLUDED.ticket_log_channel_id,moderation_log_channel_id=EXCLUDED.moderation_log_channel_id,transcript_channel_id=EXCLUDED.transcript_channel_id,transcript_log_channel_id=EXCLUDED.transcript_log_channel_id,ticket_logs_enabled=EXCLUDED.ticket_logs_enabled,moderation_logs_enabled=EXCLUDED.moderation_logs_enabled,transcript_logs_enabled=EXCLUDED.transcript_logs_enabled,default_ticket_limit=EXCLUDED.default_ticket_limit,updated_at=NOW() RETURNING *",
       [
         guildId,
         next.open_category_id,
         next.ticket_category_id,
         next.backup_category_id ?? null,
-        next.waiting_category_id ?? null,
         next.closed_category_id ?? null,
         next.log_channel_id ?? null,
         next.ticket_log_channel_id ?? null,
