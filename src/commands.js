@@ -179,26 +179,29 @@ export async function handleTicketCommand(interaction, service, ui) {
   }
 
   const ticket = await service.getTicket(interaction);
+  const mutate = (callback) => service.withTicketActionLock(ticket.id, callback);
+
   switch (sub) {
     case "info": return service.info(interaction, ticket);
     case "transcript": return service.sendTranscript(interaction, ticket);
     case "close": return service.requestClose(interaction, ticket);
-    case "reopen": return service.reopen(interaction, ticket);
-    case "claim": return service.claim(interaction, ticket);
-    case "unclaim": return service.unclaim(interaction, ticket);
-    case "waiting": return service.waiting(interaction, ticket);
+    case "reopen": return mutate(() => service.reopen(interaction, ticket));
+    case "claim": return mutate(() => service.claim(interaction, ticket));
+    case "unclaim": return mutate(() => service.unclaim(interaction, ticket));
+    case "waiting": return mutate(() => service.waiting(interaction, ticket));
     case "add": {
       const user = interaction.options.getUser("user");
       const role = interaction.options.getRole("role");
       if (Boolean(user) === Boolean(role)) throw new Error("Choose either a user or a role.");
-      return user ? service.addMember(interaction, ticket, user.id) : service.addRole(interaction, ticket, role.id);
+      return mutate(() => user
+        ? service.addMember(interaction, ticket, user.id)
+        : service.addRole(interaction, ticket, role.id));
     }
-    case "remove": return service.removeMember(interaction, ticket, interaction.options.getUser("user", true).id);
-    case "rename": return service.rename(interaction, ticket, interaction.options.getString("name", true));
+    case "remove": return mutate(() => service.removeMember(interaction, ticket, interaction.options.getUser("user", true).id));
+    case "rename": return mutate(() => service.rename(interaction, ticket, interaction.options.getString("name", true)));
     case "delete": return service.requestDelete(interaction, ticket);
     default: throw new Error("Unknown ticket subcommand.");
   }
-}
 
 async function handlePanelList(interaction, ui) {
   const panels = await listPanels(interaction.guildId);
