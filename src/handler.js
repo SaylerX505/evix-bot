@@ -1,7 +1,7 @@
-import { MessageFlags, PermissionFlagsBits } from "discord.js";
+import { MessageFlags } from "discord.js";
 import { buildAddUserModal, buildRenameModal, buildTicketModal, handleTicketCommand } from "./commands.js";
 import { getPanel, getPanelOption } from "./db.js";
-import { isStaff, parseUserId } from "./utils.js";
+import { parseUserId } from "./utils.js";
 
 function errorMessage(error) {
   return `Evix error: ${error instanceof Error ? error.message : "Unknown error."}`;
@@ -10,11 +10,6 @@ function errorMessage(error) {
 async function replySafely(interaction, payload) {
   if (interaction.deferred || interaction.replied) return interaction.editReply(payload);
   return interaction.reply(payload);
-}
-
-function memberCanManageTicket(interaction, ticket) {
-  if (interaction.member?.permissions?.has(PermissionFlagsBits.ManageChannels)) return true;
-  return isStaff(interaction.member, ticket.staff_roles);
 }
 
 export async function handleInteraction(interaction, { service, ui }) {
@@ -33,7 +28,7 @@ export async function handleInteraction(interaction, { service, ui }) {
       const optionId = interaction.values?.[0];
       if (!optionId) throw new Error("No ticket type was selected.");
 
-      const option = await getPanelOption(optionId);
+      const option = await getPanelOption(optionId, interaction.guildId);
       if (!option || String(option.panel_id) !== match[1]) {
         throw new Error("This panel option is no longer available.");
       }
@@ -60,7 +55,7 @@ export async function handleInteraction(interaction, { service, ui }) {
       const match = interaction.customId.match(/^evix:p:(\d+):o:(\d+)$/);
       if (!match) throw new Error("Invalid panel interaction.");
 
-      const option = await getPanelOption(match[2]);
+      const option = await getPanelOption(match[2], interaction.guildId);
       if (!option || String(option.panel_id) !== match[1]) {
         throw new Error("This panel option is no longer available.");
       }
@@ -87,13 +82,13 @@ export async function handleInteraction(interaction, { service, ui }) {
       const match = interaction.customId.match(/^evix:modal:(\d+)$/);
       if (!match) throw new Error("Invalid ticket form.");
 
-      const option = await getPanelOption(match[1]);
+      const option = await getPanelOption(match[1], interaction.guildId);
       if (!option) throw new Error("This ticket form is no longer available.");
 
       const formValues = {};
       for (const field of option.modal_fields ?? []) {
         const value = interaction.fields.getTextInputValue(field.id);
-        if (value?.trim()) formValues[field.label] = value;
+        if (value?.trim()) formValues[field.id] = value;
       }
 
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -122,30 +117,65 @@ export async function handleInteraction(interaction, { service, ui }) {
       return;
     }
 
-    if (interaction.isButton() && interaction.customId.startsWith("evix:t:")) {
-      const match = interaction.customId.match(
-        /^evix:t:(\d+):(claim|unclaim|lock|close|reopen|transcript|delete|add|rename|info|unlock)$/,
-      );
-      if (!match) throw new Error("Invalid ticket control.");
+    if (interaction.isButton() && interaction.customId.startsWith("evix:confirm:")) {
+      const match = interaction.customId.match(/^evix:confirm:(\d+):(delete|cancel)$/);
+      if (!match) throw new Error("Invalid confirmation action.");
 
       const [, ticketId, action] = match;
-
-      if (action === "add") {
-        await interaction.showModal(buildAddUserModal(ticketId));
-        return;
+      const ticket = await service.getTicket(interaction, ticketId);
+      if (!service.canManageTicket(interaction.member, ticket)) {
+        throw new Error("You are not authorized to confirm this action.");
       }
 
-      if (action === "rename") {
-        await interaction.showModal(buildRenameModal(ticketId));
+      if (action === "cancel") {
+        if (ticket.status === "closed") {
+          await interaction.update(ui.buildClosedTicketView(ticket));
+        } else {
+          await interaction.update(ui.buildTicketView(ticket, {
+            welcome_message: ticket.welcome_message
+              || "Thanks for opening a ticket. A member of the team will be with you shortly.",
+          }));
+        }
         return;
       }
 
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      await service.delete(interaction, ticket);
+      return;
+    }
+
+    if (interaction.isButton() && interaction.customId.startsWith("evix:t:")) {
+      const match = interaction.customId.match(
+        /^evix:t:(\d+):(claim|unclaim|lock|close|reopen|transcript|delete|add|rename|info|unlock)$/
+      );
+      if (!match) throw new Error("Invalid ticket control.");
+
+      const [, ticketId, action] = match;
       const ticket = await service.getTicket(interaction, ticketId);
 
+      if (action === "add" || action === "rename") {
+        if (!service.canManageTicket(interaction.member, ticket)) {
+          throw new Error("You are not authorized to use this ticket control.");
+        }
+
+        if (action === "add") {
+          await interaction.showModal(buildAddUserModal(ticketId));
+        } else {
+          await interaction.showModal(buildRenameModal(ticketId));
+        }
+        return;
+      }
+
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
       const ownerAllowed = ticket.owner_id === interaction.user.id && ["close", "info"].includes(action);
-      if (!memberCanManageTicket(interaction, ticket) && !ownerAllowed) {
+      if (!service.canManageTicket(interaction.member, ticket) && !ownerAllowed) {
         throw new Error("You are not authorized to use this ticket control.");
+      }
+
+      if (action === "delete") {
+        await service.requestDelete(interaction, ticket);
+        return;
       }
 
       switch (action) {
@@ -156,7 +186,6 @@ export async function handleInteraction(interaction, { service, ui }) {
         case "close": await service.close(interaction, ticket); break;
         case "reopen": await service.reopen(interaction, ticket); break;
         case "transcript": await service.sendTranscript(interaction, ticket); break;
-        case "delete": await service.delete(interaction, ticket); break;
         case "info": await service.info(interaction, ticket); break;
         default: throw new Error("Unsupported ticket control.");
       }

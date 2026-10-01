@@ -10,13 +10,14 @@ import {
   createTicket,
   getGuildSettings,
   getOpenTicketForUser,
+  getPanelOption,
   getTicketByChannel,
   listTicketMembers,
   removeTicketMember,
   updateTicket,
 } from "./db.js";
 import { writeTicketLog } from "./logs.js";
-import { buildClosedTicketView, buildTicketView } from "./ui.js";
+import { buildClosedTicketView, buildDeleteConfirmation, buildTicketView } from "./ui.js";
 import { buildTranscript, transcriptAttachment } from "./transcript.js";
 import { transitionTicket } from "./state.js";
 import {
@@ -59,19 +60,29 @@ export class TicketService {
     };
   }
 
+  canManageTicket(member, ticket) {
+    return Boolean(
+      member?.permissions?.has(PermissionFlagsBits.ManageChannels)
+      || isStaff(member, unique(ticket.staff_roles)),
+    );
+  }
+
   assertStaff(member, ticket) {
-    if (!isStaff(member, unique(ticket.staff_roles))) {
+    if (!this.canManageTicket(member, ticket)) {
       throw new Error("You are not authorized to manage this ticket.");
     }
   }
 
   canClose(member, ticket) {
-    return member?.id === ticket.owner_id || isStaff(member, unique(ticket.staff_roles));
+    return member?.id === ticket.owner_id || this.canManageTicket(member, ticket);
   }
 
-  async getTicket(interaction, ticketId) {
+  async getTicket(interaction, ticketId = null) {
     const ticket = await getTicketByChannel(interaction.guildId, interaction.channelId);
-    if (!ticket || String(ticket.id) !== String(ticketId)) {
+    if (!ticket) {
+      throw new Error("This channel is not an Evix ticket.");
+    }
+    if (ticketId !== null && String(ticket.id) !== String(ticketId)) {
       throw new Error("This ticket is not available in the current channel.");
     }
     return ticket;
@@ -98,9 +109,22 @@ export class TicketService {
     }
 
     const limit = Number(settings.default_ticket_limit ?? 1);
-    if (!option.allow_multiple && await countOpenTickets(interaction.guildId, interaction.user.id) >= limit) {
+    if (await countOpenTickets(interaction.guildId, interaction.user.id) >= limit) {
       throw new Error(`You have reached the open ticket limit (${limit}).`);
     }
+
+    const formText = Object.entries(formValues)
+      .filter(([, value]) => String(value ?? "").trim())
+      .map(([fieldId, value]) => {
+        const field = (option.modal_fields ?? []).find((entry) => entry.id === fieldId);
+        return `**${field?.label || fieldId}:** ${String(value).slice(0, 1000)}`;
+      })
+      .join("\n");
+
+    const storedWelcome = [
+      option.welcome_message || "Thanks for opening a ticket. A member of the team will be with you shortly.",
+      formText ? `\n**Request details**\n${formText}` : "",
+    ].filter(Boolean).join("\n");
 
     const category = await interaction.guild.channels.fetch(categoryId).catch(() => null);
     if (!category || category.type !== ChannelType.GuildCategory) {
@@ -181,11 +205,14 @@ export class TicketService {
         dedupeKey: option.allow_multiple ? null : `${interaction.guildId}:${interaction.user.id}:${option.id}`,
         logChannelId: option.log_channel_id || settings.log_channel_id,
         transcriptChannelId: option.transcript_channel_id || settings.transcript_channel_id,
+        ticketLimit: limit,
+        welcomeMessage: storedWelcome,
         closeBehavior: option.close_behavior || "move",
         transcriptOnClose: option.transcript_on_close !== false,
       });
     } catch (error) {
       await channel.delete("Evix ticket creation compensation").catch(() => null);
+      if (error?.code === "EVIX_TICKET_LIMIT") throw error;
       if (error?.code === "23505") {
         const existing = await getOpenTicketForUser(interaction.guildId, interaction.user.id, option.id);
         if (existing) {
@@ -212,15 +239,9 @@ export class TicketService {
       form: formValues,
     });
 
-    const formText = Object.entries(formValues)
-      .filter(([, value]) => String(value ?? "").trim())
-      .map(([key, value]) => `**${key}:** ${String(value).slice(0, 1000)}`)
-      .join("\n");
-
     const welcome = [
       pingRoles.length ? pingRoles.map((id) => `<@&${id}>`).join(" ") : "",
-      option.welcome_message || "Thanks for opening a ticket. A member of the team will be with you shortly.",
-      formText ? `\n**Request details**\n${formText}` : "",
+      storedWelcome,
     ].filter(Boolean).join("\n");
 
     const view = buildTicketView(ticket, { ...option, welcome_message: welcome });
@@ -230,8 +251,11 @@ export class TicketService {
       users: [interaction.user.id],
     };
 
+    let controlMessage;
     try {
-      await channel.send(view);
+      controlMessage = await channel.send(view);
+      const withControl = await updateTicket(ticket.id, { control_message_id: controlMessage.id });
+      if (!withControl) throw new Error("Ticket control message could not be persisted.");
     } catch (error) {
       await updateTicket(ticket.id, { status: "deleted", deleted_at: new Date() }).catch(() => null);
       await addTicketEvent(ticket.id, "TICKET_CREATE_FAILED", interaction.user.id, {
@@ -248,33 +272,125 @@ export class TicketService {
     return ticket;
   }
 
+  async refreshControlMessage(interaction, ticket, { closed = false, welcomeOverride = null } = {}) {
+    const payload = closed
+      ? buildClosedTicketView(ticket)
+      : buildTicketView(ticket, {
+        welcome_message: welcomeOverride
+          ?? ticket.welcome_message
+          ?? "Thanks for opening a ticket. A member of the team will be with you shortly.",
+      });
+
+    const channel = await interaction.guild.channels.fetch(ticket.channel_id).catch(() => null);
+    if (!channel?.isTextBased?.()) return ticket;
+
+    const oldMessageId = ticket.control_message_id;
+    const message = oldMessageId
+      ? await channel.messages.fetch(oldMessageId).catch(() => null)
+      : null;
+
+    if (message) {
+      try {
+        await message.edit(payload);
+        return ticket;
+      } catch (error) {
+        console.error("[evix-ticket-control-edit-error]", error);
+      }
+    }
+
+    try {
+      const newMessage = await channel.send(payload);
+      const next = await updateTicket(ticket.id, { control_message_id: newMessage.id });
+      if (oldMessageId && oldMessageId !== newMessage.id) {
+        await channel.messages.delete(oldMessageId, "Evix stale ticket control").catch(() => null);
+      }
+      return next ?? { ...ticket, control_message_id: newMessage.id };
+    } catch (error) {
+      console.error("[evix-ticket-control-send-error]", error);
+      return ticket;
+    }
+  }
+
+  async setParticipantPermissions(
+    interaction,
+    ticket,
+    { view = true, send = true, rollback = false, rollbackTo = { view: true, send: true }, bestEffort = false } = {},
+  ) {
+    const memberIds = unique([ticket.owner_id, ...(await listTicketMembers(ticket.id))]);
+    const changed = [];
+    const failed = [];
+
+    for (const userId of memberIds) {
+      try {
+        await interaction.channel.permissionOverwrites.edit(userId, {
+          ViewChannel: view,
+          SendMessages: send,
+          ReadMessageHistory: view,
+        });
+        changed.push(userId);
+      } catch (error) {
+        failed.push({ userId, error });
+        if (!bestEffort) {
+          for (const changedUserId of changed) {
+            await interaction.channel.permissionOverwrites.edit(changedUserId, {
+              ViewChannel: rollbackTo.view,
+              SendMessages: rollbackTo.send,
+              ReadMessageHistory: rollbackTo.view,
+            }).catch(() => null);
+          }
+          throw error;
+        }
+      }
+    }
+
+    if (failed.length) {
+      console.error("[evix-participant-permission-failures]", failed.map(({ userId, error }) => ({
+        userId,
+        message: error?.message || "unknown error",
+      })));
+    }
+
+    return { changed, failed };
+  }
   async claim(interaction, ticket) {
     this.assertStaff(interaction.member, ticket);
     if (ticket.status !== "open") throw new Error("Only open tickets can be claimed.");
     if (ticket.claimed_by === interaction.user.id) return respond(interaction, ephemeral("You already have this ticket claimed."));
     if (ticket.claimed_by) throw new Error(`This ticket is already claimed by <@${ticket.claimed_by}>.`);
 
-    const next = await updateTicket(ticket.id, { claimed_by: interaction.user.id });
+    const next = await updateTicket(
+      ticket.id,
+      { claimed_by: interaction.user.id },
+      { statuses: ["open"], claimedBy: null },
+    );
+    if (!next) throw new Error("This ticket was changed by another staff member. Please try again.");
+
     await addTicketEvent(ticket.id, "TICKET_CLAIMED", interaction.user.id);
     await respond(interaction, ephemeral("Ticket claimed."));
+    await this.refreshControlMessage(interaction, next);
     await writeTicketLog(interaction.guild, next, "TICKET_CLAIMED", interaction.user.id);
     return next;
   }
-
   async unclaim(interaction, ticket) {
     this.assertStaff(interaction.member, ticket);
     if (!ticket.claimed_by) return respond(interaction, ephemeral("This ticket is not claimed."));
-    if (ticket.claimed_by !== interaction.user.id && !interaction.member.permissions.has(PermissionFlagsBits.ManageChannels)) {
+    if (ticket.claimed_by !== interaction.user.id && !this.canManageTicket(interaction.member, ticket)) {
       throw new Error("Only the current claimer or a manager can unclaim this ticket.");
     }
 
-    const next = await updateTicket(ticket.id, { claimed_by: null });
+    const next = await updateTicket(
+      ticket.id,
+      { claimed_by: null },
+      { statuses: ["open", "locked"], claimedBy: ticket.claimed_by },
+    );
+    if (!next) throw new Error("This ticket was changed by another staff member. Please try again.");
+
     await addTicketEvent(ticket.id, "TICKET_UNCLAIMED", interaction.user.id);
     await respond(interaction, ephemeral("Ticket unclaimed."));
+    await this.refreshControlMessage(interaction, next);
     await writeTicketLog(interaction.guild, next, "TICKET_UNCLAIMED", interaction.user.id);
     return next;
   }
-
   async close(interaction, ticket, { reply = true } = {}) {
     if (!this.canClose(interaction.member, ticket)) {
       throw new Error("Only the ticket owner or configured staff can close this ticket.");
@@ -287,31 +403,61 @@ export class TicketService {
 
     transitionTicket(ticket.status, "close");
 
-    const transcriptUrl = ticket.transcript_on_close !== false
-      ? (ticket.transcript_url || await this.createTranscript(interaction, ticket, true))
-      : null;
+    let next = await updateTicket(
+      ticket.id,
+      { status: "closed", closed_at: new Date(), claimed_by: null },
+      { statuses: ["open", "locked"] },
+    );
 
-    const next = await updateTicket(ticket.id, {
-      status: "closed",
-      closed_at: new Date(),
-      claimed_by: null,
-      transcript_url: transcriptUrl,
-    });
-
-    await interaction.channel.permissionOverwrites.edit(ticket.owner_id, {
-      ViewChannel: false,
-      SendMessages: false,
-    }).catch(() => null);
-
-    const closedCategory = ticket.closed_category_id
-      ? await interaction.guild.channels.fetch(ticket.closed_category_id).catch(() => null)
-      : null;
-    if (closedCategory?.type === ChannelType.GuildCategory && ticket.close_behavior !== "stay") {
-      await interaction.channel.setParent(closedCategory.id, { lockPermissions: false }).catch(() => null);
+    if (!next) {
+      if (reply) await respond(interaction, ephemeral("This ticket was already closed by another action."));
+      return (await getTicketByChannel(interaction.guildId, interaction.channelId)) ?? ticket;
     }
 
-    await interaction.channel.send(buildClosedTicketView(next));
-    await addTicketEvent(ticket.id, "TICKET_CLOSED", interaction.user.id, {
+    let transcriptUrl = next.transcript_url || null;
+    if (next.transcript_on_close !== false && !transcriptUrl) {
+      try {
+        transcriptUrl = await this.createTranscript(interaction, next, true);
+        if (transcriptUrl) {
+          next = await updateTicket(next.id, { transcript_url: transcriptUrl }, { statuses: ["closed"] })
+            ?? { ...next, transcript_url: transcriptUrl };
+        }
+      } catch (error) {
+        console.error("[evix-close-transcript-error]", error);
+      }
+    }
+
+    try {
+      await this.setParticipantPermissions(interaction, next, {
+        view: false,
+        send: false,
+        rollback: true,
+        rollbackTo: { view: true, send: true },
+      });
+    } catch (error) {
+      await updateTicket(
+        ticket.id,
+        { status: ticket.status, closed_at: null, claimed_by: ticket.claimed_by },
+        { statuses: ["closed"] },
+      ).catch((rollbackError) => {
+        console.error("[evix-close-state-rollback-error]", rollbackError);
+      });
+      throw new Error(`Ticket close failed: ${error?.message || "permission update failed"}`);
+    }
+
+    const closedCategory = next.closed_category_id
+      ? await interaction.guild.channels.fetch(next.closed_category_id).catch(() => null)
+      : null;
+
+    if (closedCategory?.type === ChannelType.GuildCategory && next.close_behavior !== "stay") {
+      await interaction.channel.setParent(closedCategory.id, { lockPermissions: false }).catch((error) => {
+        console.error("[evix-close-category-error]", error);
+      });
+    }
+
+    next = await this.refreshControlMessage(interaction, next, { closed: true }) ?? next;
+
+    await addTicketEvent(next.id, "TICKET_CLOSED", interaction.user.id, {
       duration: formatDuration(ticket.created_at),
       transcript: transcriptUrl || "not created",
     });
@@ -322,7 +468,6 @@ export class TicketService {
     });
     return next;
   }
-
   async reopen(interaction, ticket) {
     this.assertStaff(interaction.member, ticket);
     if (ticket.status === "open" || ticket.status === "locked") {
@@ -332,52 +477,75 @@ export class TicketService {
     if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
 
     transitionTicket(ticket.status, "reopen");
-    const next = await updateTicket(ticket.id, {
-      status: "open",
-      reopened_at: new Date(),
-      closed_at: null,
-    });
 
-    await interaction.channel.permissionOverwrites.edit(ticket.owner_id, {
-      ViewChannel: true,
-      SendMessages: true,
-      ReadMessageHistory: true,
-    }).catch(() => null);
-
-    if (ticket.category_id) {
-      const category = await interaction.guild.channels.fetch(ticket.category_id).catch(() => null);
-      if (category?.type === ChannelType.GuildCategory) {
-        await interaction.channel.setParent(category.id, { lockPermissions: false }).catch(() => null);
-      }
+    try {
+      await this.setParticipantPermissions(interaction, ticket, {
+        view: true,
+        send: true,
+        rollback: true,
+        rollbackTo: { view: false, send: false },
+      });
+    } catch (error) {
+      throw new Error(`Ticket reopen failed: ${error?.message || "permission update failed"}`);
     }
 
-    await interaction.channel.send(buildTicketView(next, { welcome_message: "This ticket has been reopened." }));
-    await addTicketEvent(ticket.id, "TICKET_REOPENED", interaction.user.id);
+    let next = await updateTicket(
+      ticket.id,
+      { status: "open", reopened_at: new Date(), closed_at: null },
+      { statuses: ["closed"] },
+    );
+
+    if (!next) {
+      await this.setParticipantPermissions(interaction, ticket, {
+        view: false,
+        send: false,
+        bestEffort: true,
+      });
+      throw new Error("This ticket was changed by another action. Please try again.");
+    }
+
+    next = await this.refreshControlMessage(interaction, next, {
+      welcomeOverride: "This ticket has been reopened.",
+    }) ?? next;
+
+    await addTicketEvent(next.id, "TICKET_REOPENED", interaction.user.id);
     await respond(interaction, ephemeral("Ticket reopened."));
     await writeTicketLog(interaction.guild, next, "TICKET_REOPENED", interaction.user.id);
     return next;
   }
-
   async lock(interaction, ticket) {
     this.assertStaff(interaction.member, ticket);
     if (ticket.status === "locked") return respond(interaction, ephemeral("This ticket is already locked."));
     if (ticket.status !== "open") throw new Error("Only open tickets can be locked.");
 
     transitionTicket(ticket.status, "lock");
-    let next;
     try {
-      await interaction.channel.permissionOverwrites.edit(ticket.owner_id, { SendMessages: false });
-      next = await updateTicket(ticket.id, { status: "locked" });
+      await this.setParticipantPermissions(interaction, ticket, {
+        view: true,
+        send: false,
+        rollback: true,
+        rollbackTo: { view: true, send: true },
+      });
     } catch (error) {
-      await updateTicket(ticket.id, { status: "open" }).catch(() => null);
       throw new Error(`Ticket lock failed: ${error?.message || "permission update failed"}`);
     }
+
+    const next = await updateTicket(
+      ticket.id,
+      { status: "locked" },
+      { statuses: ["open"] },
+    );
+    if (!next) {
+      await this.setParticipantPermissions(interaction, ticket, { view: true, send: true, bestEffort: true });
+      throw new Error("This ticket was changed by another action. Please try again.");
+    }
+
     await addTicketEvent(ticket.id, "TICKET_LOCKED", interaction.user.id);
+    await this.refreshControlMessage(interaction, next);
     await respond(interaction, ephemeral("Ticket locked."));
     await writeTicketLog(interaction.guild, next, "TICKET_LOCKED", interaction.user.id);
     return next;
   }
-
   async unlock(interaction, ticket) {
     this.assertStaff(interaction.member, ticket);
     if (ticket.status !== "locked") {
@@ -386,20 +554,33 @@ export class TicketService {
     }
 
     transitionTicket(ticket.status, "unlock");
-    let next;
     try {
-      await interaction.channel.permissionOverwrites.edit(ticket.owner_id, { SendMessages: true });
-      next = await updateTicket(ticket.id, { status: "open" });
+      await this.setParticipantPermissions(interaction, ticket, {
+        view: true,
+        send: true,
+        rollback: true,
+        rollbackTo: { view: true, send: false },
+      });
     } catch (error) {
-      await updateTicket(ticket.id, { status: "locked" }).catch(() => null);
       throw new Error(`Ticket unlock failed: ${error?.message || "permission update failed"}`);
     }
+
+    const next = await updateTicket(
+      ticket.id,
+      { status: "open" },
+      { statuses: ["locked"] },
+    );
+    if (!next) {
+      await this.setParticipantPermissions(interaction, ticket, { view: true, send: false, bestEffort: true });
+      throw new Error("This ticket was changed by another action. Please try again.");
+    }
+
     await addTicketEvent(ticket.id, "TICKET_UNLOCKED", interaction.user.id);
+    await this.refreshControlMessage(interaction, next);
     await respond(interaction, ephemeral("Ticket unlocked."));
     await writeTicketLog(interaction.guild, next, "TICKET_UNLOCKED", interaction.user.id);
     return next;
   }
-
   async rename(interaction, ticket, name) {
     this.assertStaff(interaction.member, ticket);
     const safe = sanitizeChannelName(name);
@@ -411,33 +592,63 @@ export class TicketService {
 
   async addMember(interaction, ticket, userId) {
     this.assertStaff(interaction.member, ticket);
+    if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
+
     const member = await interaction.guild.members.fetch(userId).catch(() => null);
     if (!member) throw new Error("User was not found in this server.");
     if (userId === ticket.owner_id) throw new Error("The ticket owner is already a member.");
 
+    const members = await listTicketMembers(ticket.id);
+    if (members.includes(String(userId))) {
+      throw new Error("That user is already a member of this ticket.");
+    }
+
     await interaction.channel.permissionOverwrites.edit(userId, {
       ViewChannel: true,
-      SendMessages: true,
+      SendMessages: ticket.status !== "closed",
       ReadMessageHistory: true,
       AttachFiles: true,
       EmbedLinks: true,
     });
-    await addTicketMember(ticket.id, userId, interaction.user.id);
+
+    try {
+      await addTicketMember(ticket.id, userId, interaction.user.id);
+    } catch (error) {
+      await interaction.channel.permissionOverwrites.delete(userId).catch(() => null);
+      throw error;
+    }
+
     await addTicketEvent(ticket.id, "MEMBER_ADDED", interaction.user.id, { user: userId });
     await respond(interaction, ephemeral(`Added <@${userId}> to the ticket.`));
     await writeTicketLog(interaction.guild, ticket, "MEMBER_ADDED", interaction.user.id, { user: userId });
   }
-
   async removeMember(interaction, ticket, userId) {
     this.assertStaff(interaction.member, ticket);
     if (userId === ticket.owner_id) throw new Error("The ticket owner cannot be removed.");
-    await interaction.channel.permissionOverwrites.delete(userId).catch(() => null);
-    await removeTicketMember(ticket.id, userId);
+
+    const members = await listTicketMembers(ticket.id);
+    if (!members.includes(String(userId))) {
+      throw new Error("That user is not an added member of this ticket.");
+    }
+
+    await interaction.channel.permissionOverwrites.delete(userId);
+    try {
+      await removeTicketMember(ticket.id, userId);
+    } catch (error) {
+      await interaction.channel.permissionOverwrites.edit(userId, {
+        ViewChannel: ticket.status !== "closed",
+        SendMessages: ticket.status === "open",
+        ReadMessageHistory: ticket.status !== "closed",
+        AttachFiles: true,
+        EmbedLinks: true,
+      }).catch(() => null);
+      throw error;
+    }
+
     await addTicketEvent(ticket.id, "MEMBER_REMOVED", interaction.user.id, { user: userId });
     await respond(interaction, ephemeral(`Removed <@${userId}> from the ticket.`));
     await writeTicketLog(interaction.guild, ticket, "MEMBER_REMOVED", interaction.user.id, { user: userId });
   }
-
   async info(interaction, ticket) {
     if (!this.canClose(interaction.member, ticket)) {
       throw new Error("Only the ticket owner or configured staff can view this ticket.");
@@ -458,26 +669,59 @@ export class TicketService {
     });
   }
 
+  async requestDelete(interaction, ticket) {
+    this.assertStaff(interaction.member, ticket);
+    if (ticket.status === "deleted") {
+      await respond(interaction, ephemeral("This ticket is already deleted."));
+      return ticket;
+    }
+    await respond(interaction, buildDeleteConfirmation(ticket));
+    return ticket;
+  }
+
   async delete(interaction, ticket) {
     this.assertStaff(interaction.member, ticket);
     if (ticket.status === "deleted") {
       await respond(interaction, ephemeral("This ticket is already deleted."));
       return;
     }
-    if (ticket.status !== "closed") {
-      ticket = await this.close(interaction, ticket, { reply: false });
+
+    if (ticket.status !== "closed") ticket = await this.close(interaction, ticket, { reply: false });
+
+    transitionTicket(ticket.status, "delete");
+
+    const deleted = await updateTicket(
+      ticket.id,
+      { status: "deleted", deleted_at: new Date() },
+      { statuses: ["closed"] },
+    );
+
+    if (!deleted) {
+      const current = await getTicketByChannel(interaction.guildId, interaction.channelId);
+      if (!current || current.status === "deleted") {
+        await respond(interaction, ephemeral("This ticket has already been deleted."));
+        return;
+      }
+      throw new Error("This ticket was changed by another action. Please try again.");
     }
 
-    await transitionTicket(ticket.status, "delete");
-    await updateTicket(ticket.id, { status: "deleted", deleted_at: new Date() });
-    await addTicketEvent(ticket.id, "TICKET_DELETED", interaction.user.id);
-    await writeTicketLog(interaction.guild, ticket, "TICKET_DELETED", interaction.user.id);
-    await respond(interaction, ephemeral("Deleting ticket…"));
-    await interaction.channel.delete("Evix ticket deleted").catch((error) => {
-      console.error("[evix-ticket-delete-error]", error);
-    });
-  }
+    try {
+      await interaction.channel.delete("Evix ticket deleted");
+    } catch (error) {
+      await updateTicket(
+        ticket.id,
+        { status: "closed", deleted_at: null },
+        { statuses: ["deleted"] },
+      ).catch((rollbackError) => {
+        console.error("[evix-ticket-delete-rollback-error]", rollbackError);
+      });
+      throw new Error(`Ticket deletion failed: ${error?.message || "channel deletion failed"}`);
+    }
 
+    await addTicketEvent(ticket.id, "TICKET_DELETED", interaction.user.id);
+    await writeTicketLog(interaction.guild, deleted, "TICKET_DELETED", interaction.user.id);
+    await respond(interaction, ephemeral("Ticket deleted."));
+  }
   async createTranscript(interaction, ticket, silent = false) {
     const transcript = await buildTranscript(interaction.channel, ticket);
     if (!ticket.transcript_channel_id) {

@@ -1,6 +1,6 @@
 import {
-  ActionRowBuilder,
   ChannelType,
+  LabelBuilder,
   MessageFlags,
   ModalBuilder,
   PermissionFlagsBits,
@@ -60,7 +60,9 @@ export const commands = [
     .addSubcommand((s) => s.setName("config").setDescription("View ticket configuration"))
     .addSubcommand((s) => s.setName("logs").setDescription("Configure ticket logging")
       .addChannelOption((o) => o.setName("log_channel").setDescription("Ticket log channel").addChannelTypes(ChannelType.GuildText))
-      .addChannelOption((o) => o.setName("transcript_channel").setDescription("Transcript channel").addChannelTypes(ChannelType.GuildText)))
+      .addChannelOption((o) => o.setName("transcript_channel").setDescription("Transcript channel").addChannelTypes(ChannelType.GuildText))
+      .addBooleanOption((o) => o.setName("disable_logs").setDescription("Turn ticket logs off"))
+      .addBooleanOption((o) => o.setName("disable_transcripts").setDescription("Turn transcripts off")))
     .addSubcommandGroup((g) => g.setName("panel").setDescription("Manage ticket panels")
       .addSubcommand((s) => s.setName("create").setDescription("Create a ticket panel")
         .addStringOption((o) => o.setName("name").setDescription("Unique panel name").setRequired(true).setMinLength(1).setMaxLength(40))
@@ -165,7 +167,14 @@ async function refreshPanelMessage(guild, panel, ui) {
   if (!panel?.channel_id || !panel?.message_id) return;
   const channel = await guild.channels.fetch(panel.channel_id).catch(() => null);
   const message = await channel?.messages.fetch(panel.message_id).catch(() => null);
-  if (!message) return;
+
+  if (!message) {
+    await updatePanel(panel.id, { channel_id: null, message_id: null }).catch((error) => {
+      console.error("[panel-pointer-clear-error]", error);
+    });
+    return;
+  }
+
   try {
     await message.edit(ui.buildPanelMessage(panel));
   } catch (error) {
@@ -227,9 +236,21 @@ export async function handleTicketCommand(interaction, service, ui) {
 
   if (sub === "logs") {
     const current = await getGuildSettings(interaction.guildId) ?? {};
+    const disableLogs = interaction.options.getBoolean("disable_logs") ?? false;
+    const disableTranscripts = interaction.options.getBoolean("disable_transcripts") ?? false;
+    const logChannel = interaction.options.getChannel("log_channel");
+    const transcriptChannel = interaction.options.getChannel("transcript_channel");
+
+    if (disableLogs && logChannel) {
+      throw new Error("Choose either a log channel or disable logs, not both.");
+    }
+    if (disableTranscripts && transcriptChannel) {
+      throw new Error("Choose either a transcript channel or disable transcripts, not both.");
+    }
+
     const saved = await upsertGuildSettings(interaction.guildId, {
-      log_channel_id: interaction.options.getChannel("log_channel")?.id ?? current.log_channel_id ?? null,
-      transcript_channel_id: interaction.options.getChannel("transcript_channel")?.id ?? current.transcript_channel_id ?? null,
+      log_channel_id: disableLogs ? null : (logChannel?.id ?? current.log_channel_id ?? null),
+      transcript_channel_id: disableTranscripts ? null : (transcriptChannel?.id ?? current.transcript_channel_id ?? null),
     });
 
     return interaction.reply(ephemeral(
@@ -237,7 +258,7 @@ export async function handleTicketCommand(interaction, service, ui) {
     ));
   }
 
-  const ticket = await service.getTicket(interaction, interaction.channelId);
+  const ticket = await service.getTicket(interaction);
   switch (sub) {
     case "info": return service.info(interaction, ticket);
     case "transcript": return service.sendTranscript(interaction, ticket);
@@ -250,7 +271,7 @@ export async function handleTicketCommand(interaction, service, ui) {
     case "rename": return service.rename(interaction, ticket, interaction.options.getString("name", true));
     case "lock": return service.lock(interaction, ticket);
     case "unlock": return service.unlock(interaction, ticket);
-    case "delete": return service.delete(interaction, ticket);
+    case "delete": return service.requestDelete(interaction, ticket);
     default: throw new Error("Unknown ticket subcommand.");
   }
 }
@@ -281,14 +302,14 @@ async function handlePanelCommand(interaction, sub, ui) {
   if (!panel) throw new Error("Panel not found.");
 
   if (sub === "delete") {
-    await removeStoredPanelMessage(interaction.guild, panel);
     await deletePanel(panel.id);
+    await removeStoredPanelMessage(interaction.guild, panel);
     return interaction.reply(ephemeral(`Panel \`${panel.name}\` deleted.`));
   }
 
   if (sub === "reset") {
-    await removeStoredPanelMessage(interaction.guild, panel);
     const reset = await resetPanel(panel.id);
+    await removeStoredPanelMessage(interaction.guild, panel);
     return interaction.reply(ephemeral(`Panel \`${reset.name}\` was reset. Its options were removed.`));
   }
 
@@ -298,8 +319,21 @@ async function handlePanelCommand(interaction, sub, ui) {
       throw new Error("Choose a text channel.");
     }
     assertPanelOptions(panel.options);
+
+    const previous = { channel_id: panel.channel_id, message_id: panel.message_id };
     const message = await channel.send(ui.buildPanelMessage(panel));
-    await updatePanel(panel.id, { channel_id: channel.id, message_id: message.id });
+
+    try {
+      await updatePanel(panel.id, { channel_id: channel.id, message_id: message.id });
+    } catch (error) {
+      await message.delete("Evix panel database update failed").catch(() => null);
+      throw error;
+    }
+
+    if (previous.message_id && previous.message_id !== message.id) {
+      await removeStoredPanelMessage(interaction.guild, previous);
+    }
+
     return interaction.reply(ephemeral(`Panel sent to ${channel}.`));
   }
 
@@ -478,37 +512,31 @@ async function handlePanelCommand(interaction, sub, ui) {
 }
 
 export function buildAddUserModal(ticketId) {
+  const input = new TextInputBuilder()
+    .setCustomId("user")
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder("<@123456789012345678>")
+    .setRequired(true)
+    .setMaxLength(30);
+
   return new ModalBuilder()
     .setCustomId(`evix:add-user:${ticketId}`)
     .setTitle("Add user to ticket")
-    .addComponents(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("user")
-          .setLabel("User ID or mention")
-          .setStyle(TextInputStyle.Short)
-          .setPlaceholder("<@123456789012345678>")
-          .setRequired(true)
-          .setMaxLength(30),
-      ),
-    );
+    .addLabelComponents(new LabelBuilder().setLabel("User ID or mention").setTextInputComponent(input));
 }
 
 export function buildRenameModal(ticketId) {
+  const input = new TextInputBuilder()
+    .setCustomId("name")
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder("billing-help")
+    .setRequired(true)
+    .setMaxLength(90);
+
   return new ModalBuilder()
     .setCustomId(`evix:rename:${ticketId}`)
     .setTitle("Rename ticket")
-    .addComponents(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId("name")
-          .setLabel("New ticket name")
-          .setStyle(TextInputStyle.Short)
-          .setPlaceholder("billing-help")
-          .setRequired(true)
-          .setMaxLength(90),
-      ),
-    );
+    .addLabelComponents(new LabelBuilder().setLabel("New ticket name").setTextInputComponent(input));
 }
 
 export function buildTicketModal(option) {
@@ -522,12 +550,15 @@ export function buildTicketModal(option) {
   for (const field of fields) {
     const input = new TextInputBuilder()
       .setCustomId(field.id)
-      .setLabel(field.label)
       .setStyle(field.style === "paragraph" ? TextInputStyle.Paragraph : TextInputStyle.Short)
       .setRequired(field.required);
 
     if (field.placeholder) input.setPlaceholder(field.placeholder);
-    modal.addComponents(new ActionRowBuilder().addComponents(input));
+    modal.addLabelComponents(
+      new LabelBuilder()
+        .setLabel(field.label)
+        .setTextInputComponent(input),
+    );
   }
 
   return modal;

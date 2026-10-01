@@ -10,7 +10,7 @@ async function main() {
   await initDatabase(config.databaseUrl);
 
   const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+    intents: [GatewayIntentBits.Guilds],
   });
 
   const service = new TicketService(client);

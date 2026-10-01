@@ -9,7 +9,7 @@ Evix 1.0.1 provides a Discord-native ticket workflow with a clean Components V2 
 - Node.js 22+
 - PostgreSQL 14+
 - A Discord application with the bot installed
-- Bot permissions: View Channels, Send Messages, Read Message History, Manage Channels, Manage Roles, Attach Files
+- Bot permissions: View Channels, Send Messages, Read Message History, Manage Channels, Attach Files, Embed Links
 
 ## Environment
 
@@ -98,6 +98,10 @@ The database is PostgreSQL and startup schema creation is additive/idempotent. E
 ## UI
 
 Evix uses Discord Components V2 with Containers, Text Displays, Separators, Buttons, Select Menus, and Action Rows for the panel and ticket views. Components V2 messages use the `MessageFlags.IsComponentsV2` flag; normal content/embeds are not mixed into those V2 messages.
+
+## Safety and lifecycle
+
+Delete actions use a confirmation step. Ticket control messages are refreshed after claim, lock, unlock, close, and reopen actions. The global per-member open-ticket limit remains enforced even when a ticket type allows multiple tickets of that type.
 
 ## Release
 

@@ -4,8 +4,10 @@ import { escapeHtml } from "./transcript-html.js";
 export async function buildTranscript(channel, ticket, limit = 2000) {
   const messages = [];
   let before;
-  while (messages.length < limit) {
-    const batch = await channel.messages.fetch({ limit: 100, before });
+  const safeLimit = Math.max(0, Math.min(Number(limit) || 2000, 2000));
+  while (messages.length < safeLimit) {
+    const batchLimit = Math.min(100, safeLimit - messages.length);
+    const batch = await channel.messages.fetch({ limit: batchLimit, before });
     if (!batch.size) break;
     messages.push(...batch.values());
     before = batch.last()?.id;

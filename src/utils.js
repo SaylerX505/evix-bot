@@ -1,11 +1,6 @@
-export const TICKET_PREFIX = "evix";
 export const MAX_COMPONENT_OPTIONS = 25;
 export const MAX_BUTTONS_PER_ROW = 5;
 export const MAX_FORM_FIELDS = 5;
-
-export function normalizeText(value, fallback = "") {
-  return String(value ?? fallback).trim();
-}
 
 export function truncate(value, max) {
   const text = String(value ?? "");
@@ -31,7 +26,13 @@ export function renderTemplate(template, data) {
 }
 
 export function parseRoleMentions(input) {
-  return [...String(input ?? "").matchAll(/<@&(\d+)>/g)].map((m) => m[1]);
+  const value = String(input ?? "").trim();
+  if (!value) return [];
+  const tokens = value.split(/\s+/);
+  if (tokens.some((token) => !/^<@&\d{5,30}>$/.test(token))) {
+    throw new Error("Use valid Discord role mentions separated by spaces.");
+  }
+  return [...new Set(tokens.map((token) => token.slice(3, -1)))];
 }
 
 export function parseUserId(input) {
@@ -49,10 +50,6 @@ export function unique(values) {
 export function isStaff(member, staffRoleIds) {
   if (!member || !Array.isArray(staffRoleIds) || staffRoleIds.length === 0) return false;
   return staffRoleIds.some((roleId) => member.roles.cache.has(roleId));
-}
-
-export function hasAnyRole(member, roleIds) {
-  return isStaff(member, roleIds);
 }
 
 export function buildTicketKey(number) {
@@ -98,16 +95,26 @@ export function validateModalFields(fields) {
   if (fields.length > MAX_FORM_FIELDS) {
     throw new Error(`A ticket form can contain at most ${MAX_FORM_FIELDS} fields.`);
   }
-  const normalized = fields.filter(Boolean).map((field, index) => ({
-    id: String(field.id || `field_${index + 1}`).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 45),
-    label: truncate(field.label || `Field ${index + 1}`, 45),
-    placeholder: truncate(field.placeholder || "", 100),
-    required: field.required !== false,
-    style: field.style === "paragraph" ? "paragraph" : "short",
-  }));
+
+  const normalized = fields.map((field, index) => {
+    if (!field || typeof field !== "object") throw new Error(`Form field ${index + 1} must be an object.`);
+    const rawId = String(field.id ?? "").trim();
+    const rawLabel = String(field.label ?? "").trim();
+    if (!rawId || !rawLabel) throw new Error(`Form field ${index + 1} requires an id and label.`);
+    const id = rawId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 45);
+    const label = truncate(rawLabel, 45);
+    if (!id || !label) throw new Error(`Form field ${index + 1} has an invalid id or label.`);
+    return {
+      id,
+      label,
+      placeholder: truncate(field.placeholder || "", 100),
+      required: field.required !== false,
+      style: field.style === "paragraph" ? "paragraph" : "short",
+    };
+  });
+
   const ids = new Set();
   for (const field of normalized) {
-    if (!field.id || !field.label) throw new Error("Every form field needs an id and label.");
     if (ids.has(field.id)) throw new Error(`Duplicate form field id: ${field.id}`);
     ids.add(field.id);
   }
