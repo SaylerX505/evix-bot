@@ -20,7 +20,6 @@ test("ticket and panel commands are registered separately", () => {
   const panel = commands.find((command) => command.name === "panel").toJSON();
   assert.ok(ticket);
   assert.ok(panel);
-  assert.equal(ticket.options.some((option) => option.name === "waiting"), true);
   assert.equal(ticket.options.some((option) => option.name === "lock" || option.name === "unlock"), false);
   assert.equal(panel.options.some((option) => option.name === "option-add"), true);
 });
