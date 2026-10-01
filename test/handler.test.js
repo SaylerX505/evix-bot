@@ -132,3 +132,24 @@ test("confirmation buttons acknowledge before a slow ticket lookup", async () =>
     assert.equal(interaction.calls[0], "deferUpdate", action);
   }
 });
+
+
+test("async ticket service failures are caught after the interaction is acknowledged", async () => {
+  const interaction = makeButton("evix:t:42:claim");
+  interaction.deferReply = async () => {
+    interaction.deferred = true;
+    interaction.calls.push("deferReply");
+  };
+  const service = delayedService({
+    id: 42,
+    owner_id: "owner",
+    status: "open",
+    staff_roles: [],
+  });
+  service.withTicketActionLock = async (_ticketId, callback) => callback();
+  service.claim = async () => { throw new Error("simulated claim failure"); };
+
+  await assert.doesNotReject(() => handleInteraction(interaction, { service, ui: {} }));
+  assert.equal(interaction.calls[0], "deferReply");
+  assert.equal(interaction.calls.includes("editReply"), true);
+});
