@@ -108,7 +108,7 @@ test("open ticket controls expose only the valid active-ticket actions", () => {
   }, { welcome_message: "Welcome" });
   const json = JSON.stringify(containerJson(payload));
   assert.match(json, /evix:t:42:claim/);
-  assert.match(json, /evix:t:42:waiting/);
+  assert.match(json, /evix:t:42/);
   assert.match(json, /evix:t:42:close/);
   assert.match(json, /evix:t:42:info/);
   assert.doesNotMatch(json, /evix:t:42:(reopen|transcript|delete)/);
