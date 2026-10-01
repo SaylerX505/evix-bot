@@ -192,9 +192,9 @@ export async function handleTicketCommand(interaction, service, ui) {
     const saved = await upsertGuildSettings(interaction.guildId, {
       ticket_category_id: ticketsCategory.id,
       open_category_id: ticketsCategory.id,
-      backup_category_id: interaction.options.getChannel("backup_category")?.id ?? null,
-      waiting_category_id: interaction.options.getChannel("waiting_category")?.id ?? null,
-      closed_category_id: interaction.options.getChannel("closed_category")?.id ?? null,
+      backup_category_id: interaction.options.getChannel("backup_category")?.id ?? current.backup_category_id ?? null,
+      waiting_category_id: interaction.options.getChannel("waiting_category")?.id ?? current.waiting_category_id ?? null,
+      closed_category_id: interaction.options.getChannel("closed_category")?.id ?? current.closed_category_id ?? null,
       default_ticket_limit: interaction.options.getInteger("ticket_limit") ?? current.default_ticket_limit ?? 1,
     });
     return interaction.reply({
