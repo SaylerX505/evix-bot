@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
-import { addPanelOption, closeDatabase, initDatabase, updatePanel, updatePanelOption, updateTicket, upsertGuildSettings } from "../src/db.js";
+import { addPanelOption, closeDatabase, initDatabase, updatePanel, updatePanelOption, updateTicket, upsertGuildSettings, withTicketActionLock } from "../src/db.js";
 
 test("database update builders emit valid PostgreSQL placeholders", async () => {
   const queries = [];
@@ -94,6 +94,56 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
   } finally {
     pg.Pool.prototype.query = originalQuery;
     pg.Pool.prototype.end = originalEnd;
+    pg.Pool.prototype.connect = originalConnect;
+    await closeDatabase();
+  }
+});
+
+test("ticket action lock serializes a ticket and releases its session lock", async () => {
+  const originalConnect = pg.Pool.prototype.connect;
+  const calls = [];
+  pg.Pool.prototype.connect = async function() {
+    return {
+      query: async (text) => {
+        calls.push(text);
+        if (text.startsWith("SELECT pg_try_advisory_lock")) return { rows: [{ locked: true }] };
+        return { rows: [] };
+      },
+      release() { calls.push("release"); },
+    };
+  };
+
+  try {
+    await initDatabase("postgres://evix:test@localhost/evix");
+    const result = await withTicketActionLock(42, async () => "ok");
+    assert.equal(result, "ok");
+    assert.equal(calls.some((text) => String(text).startsWith("SELECT pg_try_advisory_lock")), true);
+    assert.equal(calls.some((text) => String(text).startsWith("SELECT pg_advisory_unlock")), true);
+    assert.equal(calls.at(-1), "release");
+  } finally {
+    pg.Pool.prototype.connect = originalConnect;
+    await closeDatabase();
+  }
+});
+
+test("ticket action lock rejects a concurrent action", async () => {
+  const originalConnect = pg.Pool.prototype.connect;
+  pg.Pool.prototype.connect = async function() {
+    return {
+      query: async (text) => text.startsWith("SELECT pg_try_advisory_lock")
+        ? { rows: [{ locked: false }] }
+        : { rows: [] },
+      release() {},
+    };
+  };
+
+  try {
+    await initDatabase("postgres://evix:test@localhost/evix");
+    await assert.rejects(
+      () => withTicketActionLock(42, async () => "unexpected"),
+      (error) => error.code === "EVIX_TICKET_BUSY",
+    );
+  } finally {
     pg.Pool.prototype.connect = originalConnect;
     await closeDatabase();
   }
