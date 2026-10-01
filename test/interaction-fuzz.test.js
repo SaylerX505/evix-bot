@@ -271,40 +271,51 @@ function buildFakeService() {
 }
 
 async function applyStep(world, step) {
-  let action = step;
-  if (world.getPending() === "close") {
-    if (step === "confirm-close" || step === "confirm-keep") {
-      action = step === "confirm-close" ? "close" : "keep";
+  let customAction = step;
+  let confirmation = false;
+
+  const pending = world.getPending();
+  if (pending === "close") {
+    if (step === "confirm-close") {
+      customAction = "close";
+      confirmation = true;
       world.clearPending();
-    } else if (step.startsWith("confirm-")) {
-      action = step === "confirm-delete" ? "close" : step;
+    } else if (step === "confirm-keep") {
+      customAction = "keep";
+      confirmation = true;
+      world.clearPending();
     } else {
       world.clearPending();
     }
-  } else if (world.getPending() === "delete") {
-    if (step === "confirm-delete" || step === "confirm-cancel") {
-      action = step === "confirm-delete" ? "delete" : "cancel";
+  } else if (pending === "delete") {
+    if (step === "confirm-delete") {
+      customAction = "delete";
+      confirmation = true;
+      world.clearPending();
+    } else if (step === "confirm-cancel") {
+      customAction = "cancel";
+      confirmation = true;
       world.clearPending();
     } else {
       world.clearPending();
     }
   }
 
-  const customId = action === "close" && step.startsWith("confirm-")
-    ? "evix:confirm:42:close"
-    : action === "keep"
-      ? "evix:confirm:42:keep-open"
-      : action === "cancel"
-        ? "evix:confirm:42:cancel"
-        : action === "delete" && step === "confirm-delete"
+  const customId = confirmation
+    ? customAction === "close"
+      ? "evix:confirm:42:close"
+      : customAction === "keep"
+        ? "evix:confirm:42:keep-open"
+        : customAction === "delete"
           ? "evix:confirm:42:delete"
-          : "evix:t:42:" + action;
+          : "evix:confirm:42:cancel"
+    : "evix:t:42:" + customAction;
 
-  const interaction = makeInteraction(customId, action === "info" ? "owner" : "staff");
+  const interaction = makeInteraction(customId, customAction === "info" ? "owner" : "staff");
   await handleInteraction(interaction, { service: world.service, ui: {} });
 
   assert.equal(interaction.deferred || interaction.replied, true, "interaction was left unacknowledged: " + step);
-  const acknowledged = step.startsWith("confirm-")
+  const acknowledged = confirmation
     ? interaction.calls.includes("deferUpdate")
     : interaction.calls.includes("deferReply");
   assert.equal(acknowledged, true, "ticket interaction did not acknowledge: " + step);
