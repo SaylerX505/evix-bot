@@ -38,6 +38,7 @@ function serviceFor(ticket) {
     getTicket: async () => ticket,
     canManageTicket: () => false,
     canClose: (member, current) => member.id === current.owner_id,
+    withTicketActionLock: async (_ticketId, callback) => callback(),
     close: async () => { calls.push("close"); },
     delete: async () => { calls.push("delete"); },
   };
