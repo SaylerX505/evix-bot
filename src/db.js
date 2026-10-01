@@ -118,7 +118,6 @@ export async function initDatabase(databaseUrl) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       closed_at TIMESTAMPTZ,
       reopened_at TIMESTAMPTZ,
-      waiting_at TIMESTAMPTZ,
       deleted_at TIMESTAMPTZ,
       UNIQUE (guild_id, channel_id)
     );
@@ -570,7 +569,7 @@ export async function getTicketByChannel(guildId, channelId) {
 
 export async function getOpenTicketForUser(guildId, ownerId, optionId) {
   const { rows } = await query(
-    "SELECT * FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND option_id=$3 AND status IN ('open','locked','waiting') ORDER BY created_at DESC LIMIT 1",
+    "SELECT * FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND option_id=$3 AND status IN ('open','locked') ORDER BY created_at DESC LIMIT 1",
     [guildId, ownerId, optionId],
   );
   return rows[0] ?? null;
@@ -582,7 +581,7 @@ export async function createTicket(data) {
 
     if (Number.isInteger(data.ticketLimit) && data.ticketLimit > 0) {
       const { rows: countRows } = await client.query(
-        "SELECT COUNT(*)::int AS count FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND status IN ('open','locked','waiting')",
+        "SELECT COUNT(*)::int AS count FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND status IN ('open','locked')",
         [data.guildId, data.ownerId],
       );
       if (countRows[0].count >= data.ticketLimit) {
@@ -668,7 +667,7 @@ export async function listTicketEvents(ticketId) {
 
 export async function countOpenTickets(guildId, ownerId) {
   const { rows } = await query(
-    "SELECT COUNT(*)::int AS count FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND status IN ('open','locked','waiting')",
+    "SELECT COUNT(*)::int AS count FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND status IN ('open','locked')",
     [guildId,ownerId],
   );
   return rows[0].count;
