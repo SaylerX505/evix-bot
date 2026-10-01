@@ -176,6 +176,10 @@ export async function initDatabase(databaseUrl) {
        OR transcript_log_channel_id IS NULL;
 
     UPDATE ticket_panels SET component_mode = 'dropdown' WHERE component_mode <> 'dropdown';
+
+    UPDATE tickets
+    SET ticket_key = 'EVX-' || LPAD(id::text, 6, '0')
+    WHERE ticket_key IS DISTINCT FROM ('EVX-' || LPAD(id::text, 6, '0'));
     UPDATE ticket_panel_options
     SET component_kind = 'dropdown', action = 'CREATE_TICKET'
     WHERE component_kind <> 'dropdown' OR action <> 'CREATE_TICKET';
