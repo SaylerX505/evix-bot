@@ -250,12 +250,8 @@ export async function handlePanelCommand(interaction, ui) {
     const pingRoles = pingRole ? [pingRole.id] : [];
     await validateConfiguredRoles(interaction.guild, [...staffRoles, ...pingRoles]);
 
-    const options = await listPanelOptions(panel.id);
-    if (options.length >= 25) throw new Error("A panel cannot contain more than 25 ticket options.");
-    const nextPosition = options.reduce((max, current) => Math.max(max, Number(current.position) || 0), -1) + 1;
     const option = await addPanelOption({
       panelId: panel.id,
-      position: nextPosition,
       label,
       description,
       emoji,
