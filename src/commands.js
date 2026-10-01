@@ -308,7 +308,7 @@ export async function handlePanelCommand(interaction, ui) {
       imageUrl: null,
       placeholder: "",
       accentColor: 0x5865f2,
-      footerShowBot: true,
+      footerShowBot: false,
       withDefaultOption: true,
     });
     return beginPanelStudio(interaction, panel);
