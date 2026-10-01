@@ -126,7 +126,7 @@ export function buildPanelMessage(panel, botUser = null, { preview = false } = {
   if (options.length) {
     container.addActionRowComponents(
       new ActionRowBuilder().addComponents(
-        selectFromOptions(options, panel.placeholder, panel.id),
+        selectFromOptions(options, panel.placeholder, panel.id, preview),
       ),
     );
   } else {
