@@ -55,7 +55,7 @@ test("confirm close removes the confirmation and executes close", async () => {
   const interaction = makeButton("evix:confirm:42:close");
   const service = serviceFor({ id: 42, owner_id: "owner", status: "open", staff_roles: [] });
   await handleInteraction(interaction, { service, ui: {} });
-  assert.deepEqual(interaction.calls, ["deferUpdate", "deleteReply"]);
+  assert.deepEqual(interaction.calls, ["deferUpdate", "deleteReply", "followUp"]);
   assert.deepEqual(service.calls, ["close"]);
 });
 
