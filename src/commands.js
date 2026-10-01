@@ -237,7 +237,70 @@ export async function handlePanelCommand(interaction, ui) {
   if (sub === "option-add") {
     const label = interaction.options.getString("name", true);
     const action = interaction.options.getString("action", true);
-    if (sub === "option-edit") {
+    const description = interaction.options.getString("description");
+    const emoji = interaction.options.getString("emoji");
+    const category = interaction.options.getChannel("category");
+    const closedCategory = interaction.options.getChannel("closed_category");
+    const staffRole = interaction.options.getRole("staff_roles");
+    const pingRole = interaction.options.getRole("ping_roles");
+    const closeBehavior = interaction.options.getString("close_behavior");
+    const allowMultiple = interaction.options.getBoolean("allow_multiple");
+    const transcriptOnClose = interaction.options.getBoolean("transcript_on_close");
+    const staffRoles = staffRole ? [staffRole.id] : [];
+    const pingRoles = pingRole ? [pingRole.id] : [];
+    await validateConfiguredRoles(interaction.guild, [...staffRoles, ...pingRoles]);
+
+    const options = await listPanelOptions(panel.id);
+    const option = await addPanelOption({
+      panelId: panel.id,
+      position: options.length,
+      label,
+      description,
+      emoji,
+      action,
+      categoryId: category?.id ?? null,
+      closedCategoryId: closedCategory?.id ?? null,
+      staffRoles,
+      pingRoles,
+      closeBehavior: closeBehavior || "move",
+      allowMultiple: allowMultiple === true,
+      transcriptOnClose: transcriptOnClose !== false,
+    });
+
+    const refreshed = await getPanel(interaction.guildId, panel.id);
+    await refreshPanelMessage(interaction.guild, refreshed, ui);
+    return respond(
+      interaction,
+      ui.buildAdminEmbed(
+        "Option Created",
+        "Option **" + option.label + "** has been created successfully in panel **" + panel.name + "**.\\n\\n**Action**\\n\`" + option.action + "\`",
+      ),
+    );
+  }
+
+  let optionId;
+  try {
+    optionId = BigInt(interaction.options.getString("option", true));
+  } catch {
+    throw new Error("Select a valid ticket option from the option list.");
+  }
+
+  const target = await getPanelOption(optionId, interaction.guildId);
+  if (!target || String(target.panel_id) !== String(panel.id)) throw new Error("Panel option not found.");
+
+  if (sub === "option-remove") {
+    await deletePanelOption(optionId);
+    const refreshed = await getPanel(interaction.guildId, panel.id);
+    if (refreshed?.options?.length) {
+      await refreshPanelMessage(interaction.guild, refreshed, ui);
+    } else {
+      await removeStoredPanelMessage(interaction.guild, panel);
+      if (refreshed) await updatePanel(refreshed.id, { channel_id: null, message_id: null });
+    }
+    return respond(interaction, ui.buildAdminEmbed("Option Removed", "The selected option has been removed successfully.", 0xed4245));
+  }
+
+  if (sub === "option-edit") {
     const patch = {};
     const description = interaction.options.getString("description");
     const emoji = interaction.options.getString("emoji");
@@ -250,6 +313,7 @@ export async function handlePanelCommand(interaction, ui) {
     const transcriptOnClose = interaction.options.getBoolean("transcript_on_close");
     const action = interaction.options.getString("action");
     const name = interaction.options.getString("name");
+
     if (name !== null) patch.label = name;
     if (description !== null) patch.description = description === "-" ? null : description;
     if (emoji !== null) patch.emoji = emoji === "-" ? null : emoji;
@@ -261,11 +325,13 @@ export async function handlePanelCommand(interaction, ui) {
     if (allowMultiple !== null) patch.allow_multiple = allowMultiple;
     if (transcriptOnClose !== null) patch.transcript_on_close = transcriptOnClose;
     if (action !== null) patch.action = action;
+
     const updated = Object.keys(patch).length ? await updatePanelOption(optionId, patch) : target;
     const refreshed = await getPanel(interaction.guildId, panel.id);
     await refreshPanelMessage(interaction.guild, refreshed, ui);
     return respond(interaction, ui.buildAdminEmbed("Option Saved Successfully", "Option **" + updated.label + "** has been saved successfully in panel **" + panel.name + "**."));
   }
+
   throw new Error("Unknown panel action.");
 }
 
