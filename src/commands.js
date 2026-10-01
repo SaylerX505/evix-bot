@@ -137,15 +137,13 @@ export async function handleTicketCommand(interaction, service, ui) {
   if (["setup", "config", "logs"].includes(sub) && !interaction.memberPermissions?.has(ADMIN)) throw new Error("You need Manage Server to use this command.");
 
   if (sub === "setup") {
-    const current = await getGuildSettings(interaction.guildId) ?? {};
     const ticketsCategory = interaction.options.getChannel("tickets_category", true);
     const saved = await upsertGuildSettings(interaction.guildId, {
       ticket_category_id: ticketsCategory.id,
-      open_category_id: ticketsCategory.id,
-      backup_category_id: interaction.options.getChannel("backup_category")?.id ?? current.backup_category_id ?? null,
-      waiting_category_id: interaction.options.getChannel("waiting_category")?.id ?? current.waiting_category_id ?? null,
-      closed_category_id: interaction.options.getChannel("closed_category")?.id ?? current.closed_category_id ?? null,
-      default_ticket_limit: interaction.options.getInteger("ticket_limit") ?? current.default_ticket_limit ?? 1,
+      backup_category_id: interaction.options.getChannel("backup_category")?.id,
+      waiting_category_id: interaction.options.getChannel("waiting_category")?.id,
+      closed_category_id: interaction.options.getChannel("closed_category")?.id,
+      default_ticket_limit: interaction.options.getInteger("ticket_limit") ?? undefined,
     });
     return respond(interaction, { ...ui.buildSetupSummary(saved), flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2 });
   }
@@ -155,7 +153,6 @@ export async function handleTicketCommand(interaction, service, ui) {
     return respond(interaction, { ...ui.buildSetupSummary({ ...(settings ?? {}), panels_count: panels.length }), flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2 });
   }
   if (sub === "logs") {
-    const current = await getGuildSettings(interaction.guildId) ?? {};
     const ticketChannel = interaction.options.getChannel("ticket_channel");
     const moderationChannel = interaction.options.getChannel("moderation_channel");
     const transcriptChannel = interaction.options.getChannel("transcript_channel");
@@ -165,17 +162,35 @@ export async function handleTicketCommand(interaction, service, ui) {
     if (disableTicket && ticketChannel) throw new Error("Choose either a ticket log channel or disable ticket logs.");
     if (disableModeration && moderationChannel) throw new Error("Choose either a moderation log channel or disable moderation logs.");
     if (disableTranscript && transcriptChannel) throw new Error("Choose either a transcript log channel or disable transcript logs.");
-    const saved = await upsertGuildSettings(interaction.guildId, {
-      ticket_log_channel_id: disableTicket ? null : (ticketChannel?.id ?? current.ticket_log_channel_id ?? current.log_channel_id ?? null),
-      moderation_log_channel_id: disableModeration ? null : (moderationChannel?.id ?? current.moderation_log_channel_id ?? null),
-      transcript_log_channel_id: disableTranscript ? (current.transcript_log_channel_id ?? current.transcript_channel_id ?? null) : (transcriptChannel?.id ?? current.transcript_log_channel_id ?? current.transcript_channel_id ?? null),
-      ticket_logs_enabled: disableTicket ? false : (ticketChannel ? true : current.ticket_logs_enabled !== false),
-      moderation_logs_enabled: disableModeration ? false : (moderationChannel ? true : current.moderation_logs_enabled !== false),
-      transcript_logs_enabled: disableTranscript ? false : (transcriptChannel ? true : current.transcript_logs_enabled !== false),
-      log_channel_id: disableTicket ? (current.log_channel_id ?? current.ticket_log_channel_id ?? null) : (ticketChannel?.id ?? current.log_channel_id ?? current.ticket_log_channel_id ?? null),
-      transcript_channel_id: disableTranscript ? (current.transcript_channel_id ?? current.transcript_log_channel_id ?? null) : (transcriptChannel?.id ?? current.transcript_channel_id ?? current.transcript_log_channel_id ?? null),
-    });
-    return respond(interaction, ephemeral(["Ticket logs: " + (saved.ticket_log_channel_id ? "<#" + saved.ticket_log_channel_id + ">" : "off"), "Moderation logs: " + (saved.moderation_log_channel_id ? "<#" + saved.moderation_log_channel_id + ">" : "off"), "Transcript logs: " + (saved.transcript_log_channel_id ? "<#" + saved.transcript_log_channel_id + ">" : "off")].join("\n")));
+
+    const patch = {};
+    if (disableTicket) {
+      patch.ticket_logs_enabled = false;
+    } else if (ticketChannel) {
+      patch.ticket_log_channel_id = ticketChannel.id;
+      patch.log_channel_id = ticketChannel.id;
+      patch.ticket_logs_enabled = true;
+    }
+    if (disableModeration) {
+      patch.moderation_logs_enabled = false;
+    } else if (moderationChannel) {
+      patch.moderation_log_channel_id = moderationChannel.id;
+      patch.moderation_logs_enabled = true;
+    }
+    if (disableTranscript) {
+      patch.transcript_logs_enabled = false;
+    } else if (transcriptChannel) {
+      patch.transcript_log_channel_id = transcriptChannel.id;
+      patch.transcript_channel_id = transcriptChannel.id;
+      patch.transcript_logs_enabled = true;
+    }
+
+    const saved = await upsertGuildSettings(interaction.guildId, patch);
+    return respond(interaction, ephemeral([
+      "Ticket logs: " + (saved.ticket_logs_enabled !== false && saved.ticket_log_channel_id ? "<#" + saved.ticket_log_channel_id + ">" : "off"),
+      "Moderation logs: " + (saved.moderation_logs_enabled !== false && saved.moderation_log_channel_id ? "<#" + saved.moderation_log_channel_id + ">" : "off"),
+      "Transcript logs: " + (saved.transcript_logs_enabled !== false && saved.transcript_log_channel_id ? "<#" + saved.transcript_log_channel_id + ">" : "off"),
+    ].join("\n")));
   }
 
   const ticket = await service.getTicket(interaction);
