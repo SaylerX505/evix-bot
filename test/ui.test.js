@@ -47,6 +47,12 @@ test("panel content is optional and the dropdown remains valid", () => {
   }));
 });
 
+test("panel preview disables ticket creation", () => {
+  const payload = buildPanelMessage({ id: 1, options: [option(1)] }, null, { preview: true });
+  const select = containerJson(payload).components.find((component) => component.type === 1).components[0];
+  assert.equal(select.disabled, true);
+});
+
 test("panel can render optional image and bot footer", () => {
   const payload = buildPanelMessage({
     id: 1,
