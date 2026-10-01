@@ -78,19 +78,3 @@ test("panel option edit uses role selectors and removes unused fields", () => {
   assert.equal(edit.options.find((option) => option.name === "ping_roles").type, 8);
   assert.equal(edit.options.some((option) => ["form", "name_template", "welcome"].includes(option.name)), false);
 });
-
-test("panel option add exposes the native role selectors without legacy fields", () => {
-  const panel = commands.find((command) => command.name === "panel").toJSON();
-  const add = panel.options.find((option) => option.name === "option-add");
-  assert.equal(add.options.find((option) => option.name === "staff_roles").type, 8);
-  assert.equal(add.options.find((option) => option.name === "ping_roles").type, 8);
-  assert.equal(add.options.some((option) => ["form", "name_template", "welcome"].includes(option.name)), false);
-});
-
-test("panel option edit exposes the native role selectors without legacy fields", () => {
-  const panel = commands.find((command) => command.name === "panel").toJSON();
-  const edit = panel.options.find((option) => option.name === "option-edit");
-  assert.equal(edit.options.find((option) => option.name === "staff_roles").type, 8);
-  assert.equal(edit.options.find((option) => option.name === "ping_roles").type, 8);
-  assert.equal(edit.options.some((option) => ["form", "name_template", "welcome"].includes(option.name)), false);
-});
