@@ -69,12 +69,19 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
     const optionCountQuery = optionQueries.filter((entry) => entry.text.startsWith("SELECT COUNT(*)::int AS count FROM ticket_panel_options"));
     assert.equal(optionCountQuery.length, 2);
 
-    queries.length = 0;
-    pg.Pool.prototype.query = async function(text, params) {
-      queries.push({ text, params });
-      if (text.startsWith("SELECT * FROM guild_ticket_settings")) return { rows: [] };
-      if (text.startsWith("INSERT INTO guild_ticket_settings")) return { rows: [{ guild_id: "1" }] };
-      return { rows: [] };
+    const settingsQueries = [];
+    pg.Pool.prototype.connect = async function() {
+      return {
+        query: async (text, params) => {
+          settingsQueries.push({ text, params });
+          if (text.startsWith("SELECT pg_advisory_xact_lock")) return { rows: [] };
+          if (text.startsWith("SELECT * FROM guild_ticket_settings")) return { rows: [] };
+          if (text.startsWith("INSERT INTO guild_ticket_settings")) return { rows: [{ guild_id: "1" }] };
+          if (text === "BEGIN" || text === "COMMIT" || text === "ROLLBACK") return { rows: [] };
+          return { rows: [] };
+        },
+        release() {},
+      };
     };
 
     await upsertGuildSettings("1", {
@@ -84,7 +91,8 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
       transcript_logs_enabled: false,
     });
 
-    const settingsQuery = queries.find((entry) => entry.text.startsWith("INSERT INTO guild_ticket_settings"));
+    const settingsQuery = settingsQueries.find((entry) => entry.text.startsWith("INSERT INTO guild_ticket_settings"));
+    assert.ok(settingsQueries.some((entry) => entry.text.startsWith("SELECT pg_advisory_xact_lock")));
     assert.ok(settingsQuery);
     assert.ok(settingsQuery.text.includes("ticket_logs_enabled"));
     assert.ok(settingsQuery.text.includes("$13"));
