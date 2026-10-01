@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   assertPanelOptions,
   buildTicketKey,
+  parseEmoji,
   parseRoleMentions,
   parseUserId,
   renderTemplate,
@@ -10,10 +11,10 @@ import {
   validateModalFields,
 } from "../src/utils.js";
 
-test("ticket keys are stable and padded", () => {
-  assert.equal(buildTicketKey(1), "EV-0001");
-  assert.equal(buildTicketKey(42), "EV-0042");
-  assert.equal(buildTicketKey(12345), "EV-12345");
+test("ticket keys use the Evix release format", () => {
+  assert.equal(buildTicketKey(1), "EVX-000001");
+  assert.equal(buildTicketKey(42), "EVX-000042");
+  assert.equal(buildTicketKey(12345), "EVX-012345");
 });
 
 test("channel names are normalized safely", () => {
@@ -29,19 +30,30 @@ test("role mentions are parsed uniquely and reject invalid input", () => {
 test("templates replace supported ticket variables", () => {
   assert.equal(
     renderTemplate("ticket-{number}-{username}-{type}", {
-      number: "EV-0007",
+      number: "EVX-000007",
       username: "sayler",
       type: "Billing",
     }),
-    "ticket-EV-0007-sayler-Billing",
+    "ticket-EVX-000007-sayler-Billing",
   );
 });
 
-test("panel options reject invalid create-ticket records", () => {
-  assert.throws(
-    () => assertPanelOptions([{ id: 1, action: "CREATE_TICKET" }]),
-    /requires a category/,
-  );
+test("panel options only require a stable id and name", () => {
+  assert.doesNotThrow(() => assertPanelOptions([
+    { id: 1, label: "Support" },
+  ]));
+  assert.throws(() => assertPanelOptions([
+    { id: 1, label: "" },
+  ]), /needs a name/);
+});
+
+test("emoji parser supports unicode and custom Discord emojis", () => {
+  assert.deepEqual(parseEmoji("🎟️"), { name: "🎟️" });
+  assert.deepEqual(parseEmoji("<a:ticket:123456789>"), {
+    id: "123456789",
+    name: "ticket",
+    animated: true,
+  });
 });
 
 test("user IDs accept mentions or raw IDs", () => {
