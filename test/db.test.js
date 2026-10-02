@@ -163,6 +163,13 @@ test("createPanel inserts its default option with matching SQL columns and value
 });
 
 
+test("panel option storage rejects blank names before opening a transaction", async () => {
+  await assert.rejects(
+    () => addPanelOption({ panelId: 1, label: "   ", action: "CREATE_TICKET", staffRoles: [], pingRoles: [], modalFields: [] }),
+    /cannot be empty/,
+  );
+});
+
 test("ticket action lock serializes a ticket without holding a database connection", async () => {
   const result = await withTicketActionLock(42, async () => "ok");
   assert.equal(result, "ok");
