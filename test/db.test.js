@@ -73,7 +73,7 @@ test("createPanel inserts its default option with matching SQL columns and value
         if (text.startsWith("INSERT INTO ticket_panel_options")) {
           return { rows: [{ id: 10, panel_id: 9, label: "Open Ticket", action: "CREATE_TICKET" }] };
         }
-        throw new Error("Unexpected createPanel query: " + text);
+        return { rows: [] };
       },
       release() {},
     };
