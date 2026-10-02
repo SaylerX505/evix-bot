@@ -1,5 +1,5 @@
 import { ChannelType, MessageFlags, PermissionFlagsBits } from "discord.js";
-import { addTicketEvent, addTicketMember, createTicket, getGuildSettings, getOpenTicketForUser, getTicketByChannel, getTicketById, listTicketMembers, removeTicketMember, updateTicket, withTicketActionLock } from "./db.js";
+import { addTicketEvent, addTicketMember, allocateTicketId, createTicket, getCachedTicketByChannel, getGuildSettings, getOpenTicketForUser, getTicketByChannel, getTicketById, listTicketMembers, removeTicketMember, updateTicket, withTicketActionLock } from "./db.js";
 import { writeTicketLog } from "./logs.js";
 import { buildActionResult, buildClaimResult, buildClosedTicketView, buildDeleteConfirmation, buildInfoView, buildTicketView, buildCloseConfirmation } from "./ui.js";
 import { buildTranscript, transcriptAttachment } from "./transcript.js";
@@ -10,18 +10,7 @@ import { formatDuration, isStaff, renderTemplate, sanitizeChannelName, unique, v
 const BOT_PERMISSIONS = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels];
 
 const ticketControlRefreshes = new Map();
-const ticketChannelNameChanges = new Map();
 const FRESH_TICKET = Symbol("evix-fresh-ticket");
-
-function queueTicketChannelName(ticketId, callback) {
-  const key = String(ticketId);
-  const previous = ticketChannelNameChanges.get(key) ?? Promise.resolve();
-  const next = previous.catch(() => null).then(callback);
-  ticketChannelNameChanges.set(key, next);
-  return next.finally(() => {
-    if (ticketChannelNameChanges.get(key) === next) ticketChannelNameChanges.delete(key);
-  });
-}
 
 function queueTicketControlRefresh(ticketId, callback) {
   const key = String(ticketId);
@@ -49,19 +38,16 @@ export function assertTicketChannel(interaction, ticket) {
   }
 }
 
-function statusName(status, ticketKey) { return status === "open" ? "ticket-" + ticketKey : status + "-" + ticketKey; }
 
 export class TicketService {
   constructor(client) { this.client = client; }
   withTicketActionLock(ticketId, callback) { return withTicketActionLock(ticketId, callback); }
-  queueChannelName(ticketId, callback) { return queueTicketChannelName(ticketId, callback); }
 
   async getSettings(guildId) {
     return (await getGuildSettings(guildId)) ?? {
-      guild_id: guildId, ticket_category_id: null, open_category_id: null, backup_category_id: null, closed_category_id: null,
+      guild_id: guildId, ticket_category_id: null, backup_category_id: null, closed_category_id: null,
       ticket_log_channel_id: null, moderation_log_channel_id: null, transcript_log_channel_id: null,
-      ticket_logs_enabled: true, moderation_logs_enabled: true, transcript_logs_enabled: true,
-      log_channel_id: null, transcript_channel_id: null, default_ticket_limit: 1,
+      ticket_logs_enabled: true, moderation_logs_enabled: true, transcript_logs_enabled: true, default_ticket_limit: 1,
     };
   }
   canManageTicket(member, ticket) { return Boolean(member?.permissions?.has(PermissionFlagsBits.ManageChannels) || isStaff(member, unique(ticket.staff_roles))); }
@@ -82,7 +68,8 @@ export class TicketService {
   }
 
   async getTicket(interaction, ticketId = null) {
-    let ticket = await getTicketByChannel(interaction.guildId, interaction.channelId);
+    let ticket = getCachedTicketByChannel(interaction.guildId, interaction.channelId);
+    if (!ticket) ticket = await getTicketByChannel(interaction.guildId, interaction.channelId);
     if (!ticket && ticketId !== null) {
       const candidate = await getTicketById(interaction.guildId, ticketId);
       if (candidate && String(candidate.channel_id) === String(interaction.channelId)) {
@@ -134,6 +121,17 @@ export class TicketService {
     }
     const roleOverwrites = staffRoles.map((roleId) => ({ id: roleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks] }));
 
+    // Reserve the database ID first so the channel can be created with its final name in one Discord API call.
+    const reservedTicketId = await allocateTicketId();
+    const reservedTicketKey = "EVX-" + String(reservedTicketId).padStart(6, "0");
+    const finalName = sanitizeChannelName(renderTemplate(option.ticket_name_template, {
+      number: reservedTicketKey,
+      user: interaction.user.id,
+      username: interaction.user.username,
+      type: option.label,
+    }));
+    if (!finalName) throw new Error("The ticket name template produced an empty channel name.");
+
     let channel = null;
     let category = null;
     let lastCreateError = null;
@@ -142,7 +140,7 @@ export class TicketService {
       catch (error) { lastCreateError = error; continue; }
       try {
         channel = await interaction.guild.channels.create({
-          name: "creating-ticket", type: ChannelType.GuildText, parent: category.id,
+          name: finalName, type: ChannelType.GuildText, parent: category.id,
           reason: "Evix ticket for " + interaction.user.tag + " (" + option.label + ")",
           permissionOverwrites: [
             { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
@@ -161,6 +159,7 @@ export class TicketService {
     let ticket;
     try {
       ticket = await createTicket({
+        id: reservedTicketId,
         guildId: interaction.guildId, panelId: option.panel_id, optionId: option.id, channelId: channel.id, ownerId: interaction.user.id,
         typeLabel: option.label, categoryId: actualCategoryId, closedCategoryId: option.closed_category_id || settings.closed_category_id,
         staffRoles, pingRoles, dedupeKey: option.allow_multiple ? null : interaction.guildId + ":" + interaction.user.id + ":" + option.id,
@@ -180,8 +179,6 @@ export class TicketService {
       throw error;
     }
 
-    const finalName = sanitizeChannelName(renderTemplate(option.ticket_name_template, { number: ticket.ticket_key, user: interaction.user.id, username: interaction.user.username, type: option.label }));
-    await channel.setName(finalName).catch(() => null);
 
     const welcome = [pingRoles.length ? pingRoles.map((id) => "<@&" + id + ">").join(" ") : "", storedWelcome].filter(Boolean).join("\n");
     const view = buildTicketView(ticket, { ...option, welcome_message: welcome });
@@ -479,9 +476,6 @@ export class TicketService {
       }
     }
 
-    void this.queueChannelName(next.id, () => interaction.channel.setName(statusName("closed", next.ticket_key))).catch((error) => {
-      console.error("[evix-close-channel-rename-error]", error);
-    });
 
     if (reply) {
       await respond(interaction, buildActionResult(
@@ -624,9 +618,6 @@ export class TicketService {
       throw new Error("This ticket was changed by another action. Please try again.");
     }
 
-    void this.queueChannelName(next.id, () => interaction.channel.setName(statusName("open", next.ticket_key))).catch((error) => {
-      console.error("[evix-reopen-channel-rename-error]", error);
-    });
     await respond(interaction, buildActionResult("Ticket Reopened", "This ticket is open again and ready for handling."));
 
     void addTicketEvent(next.id, "TICKET_REOPENED", interaction.user.id, { category: target.category.id })
@@ -644,8 +635,8 @@ export class TicketService {
     if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
     const safe = sanitizeChannelName(name);
     if (!safe) throw new Error("The ticket name cannot be empty.");
-    const finalName = statusName(ticket.status, safe);
-    await this.queueChannelName(ticket.id, () => interaction.channel.setName(finalName));
+    const finalName = safe;
+    await interaction.channel.setName(finalName);
     await respond(interaction, buildActionResult("Ticket Renamed", "The ticket channel is now `" + finalName + "`."));
     void addTicketEvent(ticket.id, "TICKET_RENAMED", interaction.user.id, { name: safe })
       .catch((error) => console.error("[evix-ticket-rename-event-error]", error));
