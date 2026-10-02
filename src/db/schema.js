@@ -384,6 +384,9 @@ const MIGRATIONS = [
         CREATE INDEX CONCURRENTLY IF NOT EXISTS panels_guild_id_idx
           ON ticket_panels (guild_id, id);
 
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS panel_options_panel_idx
+          ON ticket_panel_options (panel_id);
+
         CREATE INDEX CONCURRENTLY IF NOT EXISTS ticket_events_ticket_created_id_idx
           ON ticket_events (ticket_id, created_at, id);
       `);
