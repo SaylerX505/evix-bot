@@ -205,6 +205,14 @@ export async function handleInteraction(interaction, { service, ui }) {
               { reply: false, closedBy: interaction.user.id, background: true },
             );
 
+            if (closing?.alreadyClosed) {
+              await interaction.followUp({
+                ...buildActionResult("Ticket Already Closed", "The ticket is already closed. Its closed-ticket controls are being repaired now."),
+                flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+              }).catch(() => null);
+              return;
+            }
+
             await interaction.followUp({
               ...buildActionResult("Closing Ticket", "The ticket is being closed now. The closed-ticket controls will appear here automatically."),
               flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
@@ -225,6 +233,14 @@ export async function handleInteraction(interaction, { service, ui }) {
             }
             return service.delete(interaction, ticket, { background: true });
           });
+
+          if (deletion?.alreadyDeleted) {
+            await interaction.followUp({
+              ...buildActionResult("Ticket Already Deleted", "This ticket has already been deleted."),
+              flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+            }).catch(() => null);
+            return;
+          }
 
           if (!deletion?.started) {
             return;
