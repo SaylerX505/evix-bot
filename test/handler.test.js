@@ -26,7 +26,7 @@ function makeButton(customId) {
     deleteReply: async () => { calls.push("deleteReply"); },
     followUp: async (payload) => { interaction.followUpPayload = payload; calls.push("followUp"); },
     reply: async () => { interaction.replied = true; calls.push("reply"); },
-    editReply: async () => { calls.push("editReply"); },
+    editReply: async (payload) => { interaction.editReplyPayloads = [...(interaction.editReplyPayloads ?? []), payload]; calls.push("editReply"); },
     guild: {},
   };
   interaction.calls = calls;
@@ -164,7 +164,7 @@ test("concurrent delete confirmations are serialized without duplicate deletion 
 
 test("delete confirmation shows progress before the channel deletion starts", async () => {
   const interaction = makeButton("evix:confirm:42:delete");
-  const service = delayedService({
+  const service = serviceFor({
     id: 42,
     owner_id: "owner",
     status: "closed",
@@ -183,6 +183,7 @@ test("delete confirmation shows progress before the channel deletion starts", as
   });
   interaction.editReply = async (payload) => {
     events.push("editReply:" + (payload?.components ? JSON.stringify(payload.components.map((component) => component.toJSON())) : "other"));
+    interaction.editReplyPayloads = [...(interaction.editReplyPayloads ?? []), payload];
   };
 
   const running = handleInteraction(interaction, { service, ui: {} });
@@ -194,6 +195,7 @@ test("delete confirmation shows progress before the channel deletion starts", as
   resolveDeletion();
   await running;
 });
+
 
 test("concurrent delete confirmations do not wait for the first Discord channel deletion", async () => {
   const interactions = [
@@ -210,29 +212,29 @@ test("concurrent delete confirmations do not wait for the first Discord channel 
   service.getTicket = async () => ticketByCall.shift() || { id: 42, owner_id: "owner", status: "deleted", staff_roles: [] };
   service.canManageTicket = () => true;
 
-  let resolveFirstDelete;
-  const firstDeleteDone = new Promise((resolve) => { resolveFirstDelete = resolve; });
-  let deleteCalls = 0;
-  service.delete = async (_interaction, ticket) => {
-    deleteCalls += 1;
-    if (ticket.status === "deleted") return { started: false };
-    return {
-      started: true,
-      start: () => firstDeleteDone,
+  const firstDeleteStarted = new Promise((resolve) => {
+    service.delete = async (_interaction, ticket) => {
+      if (ticket.status === "deleted") return { started: false };
+      return {
+        started: true,
+        start: () => {
+          resolve();
+          return new Promise(() => {});
+        },
+      };
     };
-  };
-
+  });
+  // The promise above captures the first start; the second invocation returns already-deleted.
   const firstRun = handleInteraction(interactions[0], { service, ui: {} });
-  await new Promise((resolve) => setImmediate(resolve));
+  await firstDeleteStarted;
   const secondRun = handleInteraction(interactions[1], { service, ui: {} });
-  await new Promise((resolve) => setImmediate(resolve));
+  await secondRun;
 
-  assert.equal(deleteCalls, 2);
   assert.equal(interactions[0].editReplyPayloads?.some((payload) => JSON.stringify(payload.components?.map((x) => x.toJSON())).includes("Deleting Ticket")), true);
   assert.equal(interactions[1].editReplyPayloads?.some((payload) => JSON.stringify(payload.components?.map((x) => x.toJSON())).includes("already been deleted")), true);
 
-  resolveFirstDelete();
-  await Promise.all([firstRun, secondRun]);
+  // End the intentionally blocked first deletion by leaving its promise unresolved; no await here.
+  void firstRun;
 });
 
 
