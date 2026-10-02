@@ -306,6 +306,38 @@ test("delete handler acknowledges before physical channel deletion completes", a
   await completion;
 });
 
+test("reopen permission rollback preserves a staff member's channel visibility", async () => {
+  const edits = [];
+  const interaction = {
+    guild: {
+      members: {
+        cache: new Map([["staff", member("staff", { manageChannels: true })]]),
+        fetch: async () => null,
+      },
+    },
+    channel: {
+      permissionOverwrites: {
+        edit: async (userId, options) => edits.push({ userId, options }),
+      },
+    },
+  };
+  await service.restoreParticipantPermissions(
+    interaction,
+    { staff_roles: [] },
+    ["staff"],
+    { view: false, send: false },
+  );
+
+  assert.deepEqual(edits, [{
+    userId: "staff",
+    options: {
+      ViewChannel: true,
+      SendMessages: false,
+      ReadMessageHistory: true,
+    },
+  }]);
+});
+
 test("ticket info rejects a deleted ticket after refreshing state", async () => {
   const originalFresh = service.getFreshTicket;
   service.getFreshTicket = async () => ({ id: 50, owner_id: "owner", status: "deleted", staff_roles: [] });
