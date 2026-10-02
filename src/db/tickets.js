@@ -107,6 +107,7 @@ export async function createTicket(data) {
 }
 
 export async function updateTicket(ticketId, patch, conditions = {}) {
+  patch = Object.fromEntries(Object.entries(patch ?? {}).filter(([, value]) => value !== undefined));
   const allowed = [
     "status",
     "claimed_by",
