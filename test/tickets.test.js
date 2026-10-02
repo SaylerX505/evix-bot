@@ -381,7 +381,7 @@ test("transcript gives immediate progress feedback and sends the same file to th
     id: "m1",
     content: "hello",
     author: { tag: "owner#0001" },
-    createdTimestamp: Date.parse("2026-10-02T00:00:00.000Z"),
+    createdTimestamp: 1790899200000,
     attachments: new Map(),
   };
   const batch = {
