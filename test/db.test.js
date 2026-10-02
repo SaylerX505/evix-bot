@@ -17,7 +17,7 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
 
   try {
     await initDatabase("postgres://evix:test@localhost/evix");
-    const migrationSql = queries[1].text;
+    const migrationSql = queries[2].text;
     queries.length = 0;
 
     await updatePanel(1, { title: "New", accent_color: 123 });
