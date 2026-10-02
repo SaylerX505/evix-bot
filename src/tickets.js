@@ -203,11 +203,11 @@ export class TicketService {
     return ticket;
   }
 
-  async refreshControlMessage(interaction, ticket, { closed = false, welcomeOverride = null, closedBy = null, replace = false, fallbackToKnownState = false } = {}) {
+  async refreshControlMessage(interaction, ticket, { closed = false, welcomeOverride = null, closedBy = null, replace = false, fallbackToKnownState = false, ticketIsFresh = false } = {}) {
     return queueTicketControlRefresh(ticket.id, async () => {
       let latest;
       try {
-        latest = await this.getFreshTicket(interaction, ticket);
+        latest = ticketIsFresh ? ticket : await this.getFreshTicket(interaction, ticket);
       } catch (error) {
         if (!fallbackToKnownState) throw error;
         console.error("[evix-ticket-control-fresh-read-fallback]", error);
@@ -219,7 +219,9 @@ export class TicketService {
       const payload = renderClosed
         ? buildClosedTicketView({ ...latest, closed_by: closedBy || latest.closed_by })
         : buildTicketView(latest, { welcome_message: welcomeOverride ?? latest.welcome_message ?? "Thanks for opening a ticket. A member of the team will be with you shortly." });
-      const channel = await interaction.guild.channels.fetch(latest.channel_id).catch(() => null);
+      const channel = interaction.channel?.id && String(interaction.channel.id) === String(latest.channel_id)
+        ? interaction.channel
+        : await interaction.guild.channels.fetch(latest.channel_id).catch(() => null);
       if (!channel?.isTextBased?.()) return latest;
 
       const oldMessageId = latest.control_message_id;
@@ -327,7 +329,7 @@ export class TicketService {
     await respond(interaction, buildClaimResult(next));
     void addTicketEvent(ticket.id, "TICKET_CLAIMED", interaction.user.id)
       .catch((error) => console.error("[evix-ticket-claim-event-error]", error));
-    void this.refreshControlMessage(interaction, next, { fallbackToKnownState: true })
+    void this.refreshControlMessage(interaction, next, { fallbackToKnownState: true, ticketIsFresh: true })
       .catch((error) => console.error("[evix-ticket-refresh-after-claim-error]", error));
     void writeTicketLog(interaction.guild, next, "TICKET_CLAIMED", interaction.user.id)
       .catch((error) => console.error("[evix-ticket-claim-log-error]", error));
@@ -434,7 +436,7 @@ export class TicketService {
       await this.refreshControlMessage(
         interaction,
         next,
-        { closed: true, closedBy: closedBy || interaction.user.id, replace: true, fallbackToKnownState: true },
+        { closed: true, closedBy: closedBy || interaction.user.id, replace: true, fallbackToKnownState: true, ticketIsFresh: true },
       );
     }
 
@@ -577,7 +579,7 @@ export class TicketService {
 
     void addTicketEvent(next.id, "TICKET_REOPENED", interaction.user.id, { category: target.category.id })
       .catch((error) => console.error("[evix-ticket-reopen-event-error]", error));
-    void this.refreshControlMessage(interaction, next, { welcomeOverride: "This ticket has been reopened.", replace: true, fallbackToKnownState: true })
+    void this.refreshControlMessage(interaction, next, { welcomeOverride: "This ticket has been reopened.", replace: true, fallbackToKnownState: true, ticketIsFresh: true })
       .catch((error) => console.error("[evix-ticket-refresh-after-reopen-error]", error));
     void writeTicketLog(interaction.guild, next, "TICKET_REOPENED", interaction.user.id, { category: target.category.id })
       .catch((error) => console.error("[evix-ticket-log-after-reopen-error]", error));
