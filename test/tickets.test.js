@@ -206,6 +206,77 @@ test("stale close action on an already-closed ticket repairs the public control 
 });
 
 
+test("reopen rolls back participant access when the DB transition fails", async () => {
+  const originalFresh = service.getFreshTicket;
+  const originalSettings = service.getSettings;
+  const originalPermissions = service.setParticipantPermissions;
+
+  const rollbacks = [];
+  service.getFreshTicket = async () => ({
+    id: 53,
+    channel_id: "channel",
+    ticket_key: "EVX-000053",
+    owner_id: "owner",
+    type_label: "Support",
+    status: "closed",
+    category_id: "category-1",
+    current_category_id: "category-1",
+    closed_category_id: "category-closed",
+    backup_category_id: null,
+    staff_roles: [],
+    claimed_by: null,
+  });
+  service.getSettings = async () => ({
+    ticket_category_id: "category-1",
+    open_category_id: "category-1",
+    backup_category_id: null,
+  });
+  service.setParticipantPermissions = async (_interaction, _ticket, options) => {
+    if (options.view === false) rollbacks.push("rollback");
+    return { changed: ["owner"], failed: [] };
+  };
+
+  const interaction = {
+    guildId: "guild",
+    channel: {
+      parentId: "category-1",
+      permissionOverwrites: {
+        edit: async (userId, options) => {
+          if (options.ViewChannel === false) rollbacks.push("owner-permission-rollback:" + userId);
+        },
+      },
+    },
+    user: { id: "staff" },
+    member: member("staff", { manageChannels: true }),
+    guild: {
+      channels: {
+        fetch: async (id) => id === "category-1"
+          ? {
+              id: "category-1",
+              type: 4,
+            }
+          : null,
+      },
+    },
+    deferred: false,
+    replied: false,
+    reply: async () => {},
+    editReply: async () => {},
+  };
+
+  try {
+    await assert.rejects(
+      () => service.reopen(interaction, { id: 53 }),
+      /Database has not been initialized/,
+    );
+    assert.deepEqual(rollbacks, ["owner-permission-rollback:owner"]);
+  } finally {
+    service.getFreshTicket = originalFresh;
+    service.getSettings = originalSettings;
+    service.setParticipantPermissions = originalPermissions;
+  }
+});
+
 test("ticket info rejects a deleted ticket after refreshing state", async () => {
   const originalFresh = service.getFreshTicket;
   service.getFreshTicket = async () => ({ id: 50, owner_id: "owner", status: "deleted", staff_roles: [] });
