@@ -130,6 +130,34 @@ test("delete control keeps its confirmation ephemeral and does not update the pu
   assert.deepEqual(service.calls, []);
 });
 
+test("concurrent delete confirmations are serialized instead of returning ticket busy", async () => {
+  const interactions = [
+    makeButton("evix:confirm:42:delete"),
+    makeButton("evix:confirm:42:delete"),
+  ];
+  const service = delayedService({
+    id: 42,
+    owner_id: "owner",
+    status: "closed",
+    staff_roles: [],
+  });
+  service.canManageTicket = () => true;
+
+  let running = 0;
+  let maxRunning = 0;
+  service.delete = async () => {
+    running += 1;
+    maxRunning = Math.max(maxRunning, running);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    running -= 1;
+    service.calls.push("delete");
+  };
+
+  await Promise.all(interactions.map((interaction) => handleInteraction(interaction, { service, ui: {} })));
+  assert.equal(maxRunning, 1);
+  assert.deepEqual(service.calls, ["delete", "delete"]);
+});
+
 test("confirmation buttons acknowledge before a slow ticket lookup", async () => {
   for (const action of ["close", "keep-open", "delete", "cancel"]) {
     const interaction = makeButton("evix:confirm:42:" + action);
