@@ -4,7 +4,7 @@ import { MemoryCache, getCached } from "./cache.js";
 const SETTINGS_CACHE = new MemoryCache({
   name: "guild-settings",
   maxEntries: 512,
-  ttlMs: 30_000,
+  ttlMs: 15_000,
 });
 
 const EDITABLE_FIELDS = [
