@@ -373,6 +373,71 @@ test("ticket info rejects a deleted ticket after refreshing state", async () => 
   service.getFreshTicket = originalFresh;
 });
 
+test("transcript gives immediate progress feedback and sends the same file to the audit log", async () => {
+  const originalFresh = service.getFreshTicket;
+  const edits = [];
+  const sent = [];
+  const message = {
+    id: "m1",
+    content: "hello",
+    author: { tag: "owner#0001" },
+    createdTimestamp: Date.parse("2026-10-02T00:00:00.000Z"),
+    attachments: new Map(),
+  };
+  const batch = {
+    size: 1,
+    values: () => [message][Symbol.iterator](),
+    last: () => message,
+  };
+  const channel = {
+    isTextBased: () => true,
+    messages: { fetch: async () => batch },
+    send: async (payload) => { sent.push(payload); return payload; },
+  };
+  const ticket = {
+    id: 55,
+    channel_id: "channel",
+    ticket_key: "EVX-000055",
+    owner_id: "owner",
+    type_label: "Support",
+    status: "closed",
+    closed_by: "staff",
+    staff_roles: [],
+    transcript_log_channel_id: "log",
+    transcript_logs_enabled: true,
+    ticket_logs_enabled: false,
+  };
+  const interaction = {
+    guildId: "guild",
+    channelId: "channel",
+    channel,
+    user: { id: "staff" },
+    member: member("staff", { manageChannels: true }),
+    deferred: true,
+    replied: false,
+    guild: {
+      client: { user: { username: "Evix", displayAvatarURL: () => "https://example.com/avatar.png" } },
+      channels: { fetch: async () => channel },
+    },
+    editReply: async (payload) => { edits.push(payload); },
+  };
+
+  service.getFreshTicket = async () => ticket;
+  try {
+    await service.sendTranscript(interaction, ticket);
+
+    assert.equal(edits.length, 2);
+    assert.match(JSON.stringify(edits[0].components.map((component) => component.toJSON())), /Generating Transcript/);
+    assert.equal(edits[1].files.length, 1);
+    assert.equal(edits[1].files[0].name, "evx-000055-transcript.html");
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].files.length, 1);
+    assert.equal(sent[0].files[0].name, "evx-000055-transcript.html");
+  } finally {
+    service.getFreshTicket = originalFresh;
+  }
+});
+
 test("ticket role management rejects a deleted ticket after refreshing state", async () => {
   const originalFresh = service.getFreshTicket;
   service.getFreshTicket = async () => ({ id: 51, owner_id: "owner", status: "deleted", staff_roles: [] });
