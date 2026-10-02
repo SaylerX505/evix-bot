@@ -7,6 +7,7 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
   const queries = [];
   const originalQuery = pg.Pool.prototype.query;
   const originalEnd = pg.Pool.prototype.end;
+  const originalConnect = pg.Pool.prototype.connect;
 
   pg.Pool.prototype.query = async function(text, params) {
     queries.push({ text, params });
@@ -52,6 +53,7 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
   } finally {
     pg.Pool.prototype.query = originalQuery;
     pg.Pool.prototype.end = originalEnd;
+    pg.Pool.prototype.connect = originalConnect;
     await closeDatabase();
   }
 });
