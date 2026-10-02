@@ -32,7 +32,6 @@ test("guild settings patch is a single atomic database write", async () => {
   };
 
   pg.Pool.prototype.end = async function() {};
-  const originalConnect = pg.Pool.prototype.connect;
   pg.Pool.prototype.connect = async function() {
     return {
       query: async () => ({ rows: [] }),
