@@ -200,60 +200,61 @@ test("concurrent delete confirmations do not wait for the first Discord channel 
     makeButton("evix:confirm:42:delete"),
     makeButton("evix:confirm:42:delete"),
   ];
-  let first = true;
+
+  const ticketByCall = [
+    { id: 42, owner_id: "owner", status: "closed", staff_roles: [] },
+    { id: 42, owner_id: "owner", status: "deleted", staff_roles: [] },
+  ];
+  const service = serviceFor(ticketByCall[0]);
+  service.withTicketActionLock = withTicketActionLock;
+  service.getTicket = async () => ticketByCall.shift() || { id: 42, owner_id: "owner", status: "deleted", staff_roles: [] };
+  service.canManageTicket = () => true;
+
   let resolveFirstDelete;
   const firstDeleteDone = new Promise((resolve) => { resolveFirstDelete = resolve; });
-  const states = ["closed", "deleted"];
-  const service = serviceFor({ id: 42, owner_id: "owner", status: "closed", staff_roles: [] });
-  service.getTicket = async () => ({ ...service.getTicket.current, status: states.shift() ?? "deleted" });
-  service.getTicket.current = service.getTicket.current || { id: 42, owner_id: "owner", status: "closed", staff_roles: [] };
-  service.canManageTicket = () => true;
+  let deleteCalls = 0;
   service.delete = async (_interaction, ticket) => {
+    deleteCalls += 1;
     if (ticket.status === "deleted") return { started: false };
     return {
       started: true,
-      start: async () => {
-        if (first) {
-          first = false;
-          await firstDeleteDone;
-        }
-      },
+      start: () => firstDeleteDone,
     };
   };
 
   const firstRun = handleInteraction(interactions[0], { service, ui: {} });
   await new Promise((resolve) => setImmediate(resolve));
   const secondRun = handleInteraction(interactions[1], { service, ui: {} });
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  await new Promise((resolve) => setImmediate(resolve));
 
-  assert.equal(interactions[0].calls.includes("editReply"), true);
-  assert.equal(interactions[1].calls.includes("editReply"), true);
+  assert.equal(deleteCalls, 1);
+  assert.equal(interactions[0].editReplyPayloads?.some((payload) => JSON.stringify(payload.components?.map((x) => x.toJSON())).includes("Deleting Ticket")), true);
+  assert.equal(interactions[1].editReplyPayloads?.some((payload) => JSON.stringify(payload.components?.map((x) => x.toJSON())).includes("already been deleted")), true);
 
   resolveFirstDelete();
   await Promise.all([firstRun, secondRun]);
 });
 
-test("ticket confirmation success followups keep Components V2 and Ephemeral flags", async () => {
+
+test("ticket confirmation progress responses remain Components V2", async () => {
   for (const action of ["close", "delete"]) {
     const interaction = makeButton("evix:confirm:42:" + action);
-    const service = delayedService({
+    const service = serviceFor({
       id: 42,
       owner_id: "owner",
       status: action === "delete" ? "closed" : "open",
       staff_roles: [],
     });
     service.canManageTicket = () => true;
+
     await handleInteraction(interaction, { service, ui: {} });
 
-    const payload = interaction.followUpPayload;
-    assert.ok(payload);
-    assert.equal(
-      payload.flags,
-      MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
-      action,
-    );
+    const payloads = interaction.editReplyPayloads ?? [];
+    assert.equal(payloads.length >= 1, true);
+    assert.equal(payloads.every((payload) => (payload.flags & MessageFlags.IsComponentsV2) === MessageFlags.IsComponentsV2), true);
   }
 });
+
 
 test("confirmation buttons acknowledge before a slow ticket lookup", async () => {
   for (const action of ["close", "keep-open", "delete", "cancel"]) {
