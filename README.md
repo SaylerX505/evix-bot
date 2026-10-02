@@ -2,7 +2,7 @@
 
 Professional Discord ticketing system for Evix.
 
-Evix 1.0.2 provides a Discord-native ticket workflow with a clean Components V2 UI, configurable panels, select menus, forms, role-based access, transcripts, and audit logs.
+Evix 1.0.2 provides a Discord-native ticket workflow with a clean Components V2 UI, configurable panels, select menus, role-based access, manual transcripts, and audit logs.
 
 ## Requirements
 
