@@ -1,7 +1,9 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import pg from "pg";
 import { PermissionFlagsBits } from "discord.js";
+import { closeDatabase, initDatabase } from "../src/db.js";
 import { TicketService } from "../src/tickets.js";
 
 const service = new TicketService({});
@@ -37,6 +39,81 @@ test("ticket channel renames are serialized per ticket", async () => {
   releaseFirst();
   await Promise.all([first, second]);
   assert.deepEqual(events, ["first-start", "first-end", "second"]);
+});
+
+test("service delete with background mode returns before Discord channel deletion completes", async () => {
+  const originalQuery = pg.Pool.prototype.query;
+  const originalEnd = pg.Pool.prototype.end;
+  const originalFresh = service.getFreshTicket;
+
+  let releaseDelete;
+  const deleteGate = new Promise((resolve) => { releaseDelete = resolve; });
+  let channelDeleteStarted = false;
+
+  pg.Pool.prototype.query = async function(text) {
+    if (text === "SELECT 1") return { rows: [{ "?column?": 1 }] };
+    if (text.startsWith("CREATE TABLE IF NOT EXISTS")) return { rows: [] };
+    if (text.startsWith("ALTER TABLE")) return { rows: [] };
+    if (text.startsWith("UPDATE tickets SET")) {
+      return {
+        rows: [{
+          id: 61,
+          channel_id: "channel",
+          owner_id: "owner",
+          type_label: "Support",
+          status: "deleted",
+          ticket_logs_enabled: false,
+          moderation_logs_enabled: false,
+          transcript_logs_enabled: false,
+        }],
+      };
+    }
+    if (text.startsWith("SELECT channel_id FROM tickets")) return { rows: [] };
+    return { rows: [] };
+  };
+  pg.Pool.prototype.end = async function() {};
+
+  const ticket = {
+    id: 61,
+    channel_id: "channel",
+    owner_id: "owner",
+    type_label: "Support",
+    status: "closed",
+    ticket_logs_enabled: false,
+    moderation_logs_enabled: false,
+    transcript_logs_enabled: false,
+    staff_roles: [],
+  };
+  service.getFreshTicket = async () => ticket;
+
+  const interaction = {
+    guildId: "guild",
+    user: { id: "staff" },
+    member: member("staff", { manageChannels: true }),
+    channel: {
+      delete: async () => {
+        channelDeleteStarted = true;
+        await deleteGate;
+      },
+    },
+    guild: { channels: {} },
+  };
+
+  try {
+    await initDatabase("postgres://evix:test@localhost/evix");
+    const result = await service.delete(interaction, ticket, { background: true });
+
+    assert.equal(result.started, true);
+    assert.equal(channelDeleteStarted, true);
+
+    releaseDelete();
+    await result.completion;
+  } finally {
+    service.getFreshTicket = originalFresh;
+    pg.Pool.prototype.query = originalQuery;
+    pg.Pool.prototype.end = originalEnd;
+    await closeDatabase();
+  }
 });
 
 test("ticket management accepts configured staff or Manage Channels", () => {
