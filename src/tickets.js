@@ -340,7 +340,7 @@ export class TicketService {
     await respond(interaction, buildActionResult("Ticket Unclaimed", "The ticket is available for another staff member to claim."));
     void addTicketEvent(ticket.id, "TICKET_UNCLAIMED", interaction.user.id, { previous_claim: ticket.claimed_by })
       .catch((error) => console.error("[evix-ticket-unclaim-event-error]", error));
-    void this.refreshControlMessage(interaction, next, { fallbackToKnownState: true })
+    void this.refreshControlMessage(interaction, next, { fallbackToKnownState: true, ticketIsFresh: true })
       .catch((error) => console.error("[evix-ticket-refresh-after-unclaim-error]", error));
     void writeTicketLog(interaction.guild, next, "TICKET_UNCLAIMED", interaction.user.id)
       .catch((error) => console.error("[evix-ticket-unclaim-log-error]", error));
