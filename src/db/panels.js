@@ -101,6 +101,7 @@ export async function listPanels(guildId) {
 }
 
 export async function updatePanel(panelId, patch) {
+  patch = Object.fromEntries(Object.entries(patch ?? {}).filter(([, value]) => value !== undefined));
   if (Object.hasOwn(patch, "name")) {
     patch = { ...patch, name: String(patch.name ?? "").trim() };
     if (!patch.name) throw new Error("Panel name cannot be empty.");
