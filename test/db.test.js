@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
-import { addPanelOption, closeDatabase, createPanel, initDatabase, updatePanel, updatePanelOption, updateTicket, upsertGuildSettings, withTicketActionLock } from "../src/db.js";
+import { addPanelOption, closeDatabase, createPanel, getGuildSettings, getTicketByChannel, initDatabase, updatePanel, updatePanelOption, updateTicket, upsertGuildSettings, withTicketActionLock } from "../src/db.js";
 
 test("database update builders emit valid PostgreSQL placeholders", async () => {
   const queries = [];
@@ -117,6 +117,98 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
   }
 });
 
+
+test("guild settings cache avoids repeated database reads", async () => {
+  const originalQuery = pg.Pool.prototype.query;
+  const originalConnect = pg.Pool.prototype.connect;
+  const calls = [];
+
+  pg.Pool.prototype.query = async function(text, params) {
+    calls.push({ text, params });
+    if (text === "SELECT 1") return { rows: [{ "?column?": 1 }] };
+    if (text.startsWith("CREATE TABLE IF NOT EXISTS")) return { rows: [] };
+    if (text.startsWith("SELECT channel_id FROM tickets")) return { rows: [] };
+    if (text.startsWith("SELECT * FROM guild_ticket_settings")) {
+      return { rows: [{ guild_id: "cache-guild", ticket_category_id: "cat", open_category_id: "cat" }] };
+    }
+    return { rows: [] };
+  };
+
+  try {
+    await initDatabase("postgres://evix:test@localhost/evix");
+    calls.length = 0;
+
+    const first = await getGuildSettings("cache-guild");
+    const second = await getGuildSettings("cache-guild");
+
+    assert.equal(first.ticket_category_id, "cat");
+    assert.equal(second.ticket_category_id, "cat");
+    assert.equal(calls.filter((entry) => entry.text.startsWith("SELECT * FROM guild_ticket_settings")).length, 1);
+  } finally {
+    pg.Pool.prototype.query = originalQuery;
+    pg.Pool.prototype.connect = originalConnect;
+    await closeDatabase();
+  }
+});
+
+test("non-ticket channel lookups are served from the in-memory channel index", async () => {
+  const originalQuery = pg.Pool.prototype.query;
+  const originalConnect = pg.Pool.prototype.connect;
+  const calls = [];
+
+  pg.Pool.prototype.query = async function(text, params) {
+    calls.push({ text, params });
+    if (text === "SELECT 1") return { rows: [{ "?column?": 1 }] };
+    if (text.startsWith("CREATE TABLE IF NOT EXISTS")) return { rows: [] };
+    if (text.startsWith("SELECT channel_id FROM tickets")) return { rows: [{ channel_id: "known-ticket-channel" }] };
+    return { rows: [] };
+  };
+  pg.Pool.prototype.connect = async function() {
+    throw new Error("A non-ticket channel lookup must not open a database connection.");
+  };
+
+  try {
+    await initDatabase("postgres://evix:test@localhost/evix");
+    calls.length = 0;
+
+    assert.equal(await getTicketByChannel("guild", "ordinary-channel"), null);
+    assert.equal(calls.some((entry) => entry.text.startsWith("SELECT * FROM tickets WHERE guild_id=$1 AND channel_id=$2")), false);
+  } finally {
+    pg.Pool.prototype.query = originalQuery;
+    pg.Pool.prototype.connect = originalConnect;
+    await closeDatabase();
+  }
+});
+
+test("empty guild settings upserts do not acquire an advisory-lock transaction", async () => {
+  const originalQuery = pg.Pool.prototype.query;
+  const originalConnect = pg.Pool.prototype.connect;
+  const calls = [];
+
+  pg.Pool.prototype.query = async function(text, params) {
+    calls.push({ text, params });
+    if (text === "SELECT 1") return { rows: [{ "?column?": 1 }] };
+    if (text.startsWith("CREATE TABLE IF NOT EXISTS")) return { rows: [] };
+    if (text.startsWith("SELECT channel_id FROM tickets")) return { rows: [] };
+    if (text.startsWith("SELECT * FROM guild_ticket_settings")) return { rows: [] };
+    return { rows: [] };
+  };
+  pg.Pool.prototype.connect = async function() {
+    throw new Error("No-op settings update must not acquire a transaction.");
+  };
+
+  try {
+    await initDatabase("postgres://evix:test@localhost/evix");
+    calls.length = 0;
+
+    assert.equal(await upsertGuildSettings("empty-guild", {}), null);
+    assert.equal(calls.some((entry) => entry.text.startsWith("SELECT pg_advisory_xact_lock")), false);
+  } finally {
+    pg.Pool.prototype.query = originalQuery;
+    pg.Pool.prototype.connect = originalConnect;
+    await closeDatabase();
+  }
+});
 
 test("createPanel inserts its default option with matching SQL columns and values", async () => {
   const originalQuery = pg.Pool.prototype.query;
