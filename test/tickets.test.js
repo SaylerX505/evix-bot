@@ -393,6 +393,119 @@ test("ticket role management rejects a deleted ticket after refreshing state", a
 
 
 
+test("control refresh does not wait for deletion of the old public control message", async () => {
+  const originalFresh = service.getFreshTicket;
+  service.getFreshTicket = async (_interaction, ticket) => ticket;
+  let resolveDelete;
+  const deletionStarted = new Promise((resolve) => { resolveDelete = resolve; });
+  const oldMessage = {
+    async edit() {},
+  };
+  const newMessage = { id: "new-control" };
+  const channel = {
+    isTextBased: () => true,
+    messages: {
+      fetch: async () => oldMessage,
+      delete: async () => deletionStarted,
+    },
+    send: async () => newMessage,
+  };
+  const interaction = {
+    guildId: "guild",
+    guild: { channels: { fetch: async () => channel } },
+  };
+  const ticket = {
+    id: 58,
+    channel_id: "channel",
+    control_message_id: "old-control",
+    ticket_key: "EVX-000058",
+    owner_id: "owner",
+    type_label: "Support",
+    status: "closed",
+    closed_by: "staff",
+  };
+
+  try {
+    const started = Date.now();
+    const refreshed = await service.refreshControlMessage(
+      interaction,
+      ticket,
+      { replace: true, ticketIsFresh: true, fallbackToKnownState: true },
+    );
+    const elapsed = Date.now() - started;
+    assert.equal(refreshed.control_message_id, undefined);
+    assert.ok(elapsed < 100);
+    resolveDelete();
+  } finally {
+    service.getFreshTicket = originalFresh;
+  }
+});
+
+test("concurrent transcript requests share one history fetch job", async () => {
+  const originalFresh = service.getFreshTicket;
+  service.getFreshTicket = async (_interaction, ticket) => ticket;
+  let fetches = 0;
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const message = {
+    id: "m1",
+    content: "hello",
+    author: { tag: "owner#0001" },
+    createdTimestamp: 1790899200000,
+    attachments: new Map(),
+  };
+  const batch = {
+    size: 1,
+    values: () => [message][Symbol.iterator](),
+    last: () => message,
+  };
+  const channel = {
+    id: "channel",
+    isTextBased: () => true,
+    messages: {
+      fetch: async () => {
+        fetches += 1;
+        await gate;
+        return batch;
+      },
+    },
+  };
+  const makeInteraction = () => ({
+    guildId: "guild",
+    channelId: "channel",
+    channel,
+    user: { id: "staff" },
+    member: member("staff", { manageChannels: true }),
+    deferred: true,
+    replied: false,
+    guild: {
+      client: { user: { username: "Evix", displayAvatarURL: () => "https://example.com/avatar.png" } },
+      channels: { fetch: async () => channel },
+    },
+    editReply: async () => {},
+  });
+  const ticket = {
+    id: 59,
+    channel_id: "channel",
+    ticket_key: "EVX-000059",
+    owner_id: "owner",
+    type_label: "Support",
+    status: "closed",
+    closed_by: "staff",
+  };
+
+  try {
+    const first = service.sendTranscript(makeInteraction(), ticket);
+    const second = service.sendTranscript(makeInteraction(), ticket);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(fetches, 1);
+    release();
+    await Promise.all([first, second]);
+  } finally {
+    service.getFreshTicket = originalFresh;
+  }
+});
+
 test("control refresh falls back to editing the existing message when replacement send fails", async () => {
   const edited = [];
   const message = {
