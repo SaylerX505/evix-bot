@@ -372,13 +372,16 @@ export async function upsertGuildSettings(guildId, patch) {
   });
 }
 export async function createPanel(data) {
+  const name = String(data.name ?? "").trim();
+  if (!name) throw new Error("Panel name cannot be empty.");
+
   return withTransaction(async (client) => {
     const { rows } = await client.query(
       "INSERT INTO ticket_panels (guild_id,name,component_mode,title,description,image_url,accent_color,placeholder,footer,footer_show_bot) " +
       "VALUES ($1,$2,'dropdown',$3,$4,$5,$6,$7,$8,$9) RETURNING *",
       [
         data.guildId,
-        data.name,
+        name,
         data.title ?? "",
         data.description ?? "",
         data.imageUrl ?? null,
@@ -422,6 +425,10 @@ export async function listPanels(guildId) {
 }
 
 export async function updatePanel(panelId, patch) {
+  if (Object.hasOwn(patch, "name")) {
+    patch = { ...patch, name: String(patch.name ?? "").trim() };
+    if (!patch.name) throw new Error("Panel name cannot be empty.");
+  }
   const allowed = [
     "channel_id","message_id","component_mode","title","description","image_url",
     "accent_color","placeholder","footer","footer_show_bot","name"
