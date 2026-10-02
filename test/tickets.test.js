@@ -355,6 +355,116 @@ test("reopen rolls back participant access when the DB transition fails", async 
   }
 });
 
+test("transcript acknowledges before fetching message history", async () => {
+  const order = [];
+  const originalFresh = service.getFreshTicket;
+  service.getFreshTicket = async () => ({
+    id: 54,
+    channel_id: "ticket-channel",
+    ticket_key: "EVX-000054",
+    owner_id: "owner",
+    type_label: "Support",
+    status: "closed",
+    staff_roles: [],
+    claimed_by: null,
+    ticket_logs_enabled: false,
+  });
+
+  const interaction = {
+    guildId: "guild",
+    channelId: "ticket-channel",
+    channel: {},
+    user: { id: "staff" },
+    member: member("staff", { manageChannels: true }),
+    deferred: true,
+    replied: false,
+    editReply: async (payload) => {
+      order.push(JSON.stringify(payload).includes("Generating Transcript") ? "ack" : "result");
+    },
+    reply: async () => {},
+    guild: {
+      channels: {
+        fetch: async () => ({
+          isTextBased: () => true,
+          messages: {
+            fetch: async () => {
+              order.push("fetch");
+              return new Map();
+            },
+          },
+        }),
+      },
+    },
+  };
+
+  try {
+    await service.sendTranscript(interaction, { id: 54 });
+    assert.equal(order[0], "ack");
+  } finally {
+    service.getFreshTicket = originalFresh;
+  }
+});
+
+test("transcript audit log carries the generated transcript file", async () => {
+  const originalFresh = service.getFreshTicket;
+  const sent = [];
+  const logChannel = {
+    isTextBased: () => true,
+    send: async (payload) => {
+      sent.push(payload);
+      return payload;
+    },
+  };
+  const ticketChannel = {
+    isTextBased: () => true,
+    messages: {
+      fetch: async () => new Map(),
+    },
+  };
+
+  service.getFreshTicket = async () => ({
+    id: 55,
+    channel_id: "ticket-channel",
+    ticket_key: "EVX-000055",
+    owner_id: "owner",
+    type_label: "Support",
+    status: "closed",
+    staff_roles: [],
+    claimed_by: null,
+    ticket_logs_enabled: true,
+    transcript_logs_enabled: true,
+    transcript_log_channel_id: null,
+    transcript_channel_id: null,
+    ticket_log_channel_id: "log-channel",
+    log_channel_id: null,
+  });
+
+  const interaction = {
+    guildId: "guild",
+    channelId: "ticket-channel",
+    channel: ticketChannel,
+    user: { id: "staff" },
+    member: member("staff", { manageChannels: true }),
+    deferred: true,
+    replied: false,
+    editReply: async () => {},
+    reply: async () => {},
+    guild: {
+      channels: {
+        fetch: async (id) => id === "ticket-channel" ? ticketChannel : logChannel,
+      },
+    },
+  };
+
+  try {
+    await service.sendTranscript(interaction, { id: 55 });
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].files?.length, 1);
+  } finally {
+    service.getFreshTicket = originalFresh;
+  }
+});
+
 test("ticket info rejects a deleted ticket after refreshing state", async () => {
   const originalFresh = service.getFreshTicket;
   service.getFreshTicket = async () => ({ id: 50, owner_id: "owner", status: "deleted", staff_roles: [] });
