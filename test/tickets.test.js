@@ -63,6 +63,46 @@ test("ticket owner may close and view info but is not staff", () => {
 });
 
 
+test("trusted post-mutation control refresh skips an extra database read", async () => {
+  const originalFresh = service.getFreshTicket;
+  let freshReads = 0;
+  service.getFreshTicket = async () => {
+    freshReads += 1;
+    throw new Error("unexpected extra database read");
+  };
+  const edits = [];
+  const ticket = {
+    id: 55,
+    channel_id: "channel",
+    control_message_id: "control",
+    ticket_key: "EVX-000055",
+    owner_id: "owner",
+    type_label: "Support",
+    status: "closed",
+    closed_by: "staff",
+    staff_roles: [],
+  };
+  const interaction = {
+    guildId: "guild",
+    channel: {
+      id: "channel",
+      isTextBased: () => true,
+      messages: {
+        fetch: async () => ({ edit: async (payload) => edits.push(payload) }),
+      },
+    },
+    guild: { channels: { fetch: async () => null } },
+  };
+
+  try {
+    await service.refreshControlMessage(interaction, ticket, { ticketIsFresh: true });
+    assert.equal(freshReads, 0);
+    assert.equal(edits.length, 1);
+  } finally {
+    service.getFreshTicket = originalFresh;
+  }
+});
+
 test("control refresh requires fresh ticket state and does not trust stale input", async () => {
   const originalFresh = service.getFreshTicket;
   service.getFreshTicket = async () => ({
