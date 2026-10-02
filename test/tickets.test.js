@@ -39,6 +39,30 @@ test("ticket channel renames are serialized per ticket", async () => {
   assert.deepEqual(events, ["first-start", "first-end", "second"]);
 });
 
+test("ticket mutations reject a ticket id used from another channel", async () => {
+  const originalFresh = service.getFreshTicket;
+  service.getFreshTicket = originalFresh;
+  const interaction = {
+    guildId: "guild",
+    channelId: "different-channel",
+  };
+
+  const originalGetById = service.getFreshTicket;
+  service.getFreshTicket = async () => ({
+    id: 1,
+    channel_id: "ticket-channel",
+  });
+
+  try {
+    await assert.rejects(
+      () => service.getFreshTicket(interaction, { id: 1 }),
+      /not available in the current channel/,
+    );
+  } finally {
+    service.getFreshTicket = originalGetById;
+  }
+});
+
 test("ticket management accepts configured staff or Manage Channels", () => {
   const ticket = { staff_roles: ["staff-role"] };
   assert.equal(service.canManageTicket(member("u1", { roles: ["staff-role"] }), ticket), true);
