@@ -457,6 +457,8 @@ export class TicketService {
         reopened_at: new Date(),
         closed_at: null,
         closed_by: null,
+        claimed_by: null,
+        claimed_at: null,
         current_category_id: target.category.id,
       },
       { statuses: ["closed"] },
