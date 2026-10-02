@@ -812,7 +812,7 @@ export class TicketService {
 
     await interaction.editReply({
       ...buildActionResult("Transcript Ready", "Transcript generated for \`" + ticket.ticket_key + "\`."),
-      files: [transcriptAttachment(transcript.buffer, transcript.fileName)],
+      files: [{ attachment: transcript.buffer, name: transcript.fileName }],
       flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
     });
 
