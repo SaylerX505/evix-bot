@@ -16,6 +16,8 @@ import {
 import { buildPanelMessage, v2Message } from "./ui.js";
 
 export const panelDrafts = new Map();
+const panelDraftTimers = new Map();
+const PANEL_DRAFT_TTL_MS = 15 * 60 * 1000;
 
 function key(guildId, userId, panelId) {
   return String(guildId) + ":" + String(userId) + ":" + String(panelId);
@@ -27,7 +29,7 @@ export function clonePanel(panel) {
 
 export function beginPanelStudio(interaction, panel) {
   const draft = clonePanel(panel);
-  panelDrafts.set(key(interaction.guildId, interaction.user.id, panel.id), draft);
+  setPanelDraft(interaction.guildId, interaction.user.id, panel.id, draft);
   const payload = buildPanelStudioPayload(draft, interaction.client.user);
   if (interaction.deferred || interaction.replied) return interaction.editReply(payload);
   return interaction.reply({
@@ -40,10 +42,26 @@ export function getPanelDraft(guildId, userId, panelId) {
   return panelDrafts.get(key(guildId, userId, panelId)) ?? null;
 }
 export function setPanelDraft(guildId, userId, panelId, draft) {
-  panelDrafts.set(key(guildId, userId, panelId), draft);
+  const draftKey = key(guildId, userId, panelId);
+  const previousTimer = panelDraftTimers.get(draftKey);
+  if (previousTimer) clearTimeout(previousTimer);
+
+  panelDrafts.set(draftKey, draft);
+  const timer = setTimeout(() => {
+    if (panelDrafts.get(draftKey) === draft) {
+      panelDrafts.delete(draftKey);
+      panelDraftTimers.delete(draftKey);
+    }
+  }, PANEL_DRAFT_TTL_MS);
+  timer.unref?.();
+  panelDraftTimers.set(draftKey, timer);
 }
 export function clearPanelDraft(guildId, userId, panelId) {
-  panelDrafts.delete(key(guildId, userId, panelId));
+  const draftKey = key(guildId, userId, panelId);
+  const timer = panelDraftTimers.get(draftKey);
+  if (timer) clearTimeout(timer);
+  panelDraftTimers.delete(draftKey);
+  panelDrafts.delete(draftKey);
 }
 
 function textInput(id, label, value, max, required = false) {
