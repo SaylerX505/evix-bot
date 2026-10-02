@@ -22,6 +22,17 @@ test("memory cache expires entries and bounds its size without timers", async ()
   assert.deepEqual(cache.get("d"), { value: 4 });
 });
 
+test("cache generation metadata stays bounded during key churn", async () => {
+  const cache = new MemoryCache({ maxEntries: 8, ttlMs: 100 });
+  for (let index = 0; index < 1_000; index += 1) {
+    cache.invalidate("missing-" + index);
+    cache.set("key-" + index, { index });
+  }
+
+  assert.ok(cache.size <= 8);
+  assert.ok(cache.generations.size <= 8);
+});
+
 test("memory cache returns isolated copies and invalidation wins over stale in-flight reads", async () => {
   const cache = new MemoryCache({ maxEntries: 8, ttlMs: 1_000 });
   cache.set("guild", { nested: { value: 1 } });
