@@ -204,7 +204,7 @@ export async function handleInteraction(interaction, { service, ui }) {
         await service.withTicketActionLock(ticket.id, () => service.delete(interaction, ticket));
         await interaction.followUp({
           ...buildActionResult("Ticket Deleted", "This ticket has been permanently deleted."),
-          flags: MessageFlags.Ephemeral,
+          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
         }).catch(() => null);
       } catch (error) {
         const normalized = normalizeError(error);
