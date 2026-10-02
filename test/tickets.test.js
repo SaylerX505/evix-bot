@@ -101,6 +101,7 @@ test("post-mutation control refresh may use only the explicitly trusted state on
     status: "closed",
     closed_by: "staff",
     staff_roles: [],
+    created_at: "2026-10-01T00:00:00.000Z",
   };
   const interaction = {
     guildId: "guild",
