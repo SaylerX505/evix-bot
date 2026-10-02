@@ -225,6 +225,18 @@ const MIGRATIONS = [
     transactional: true,
     async run(client) {
       await client.query(`
+        ALTER TABLE guild_ticket_settings ADD COLUMN IF NOT EXISTS open_category_id TEXT;
+        ALTER TABLE guild_ticket_settings ADD COLUMN IF NOT EXISTS log_channel_id TEXT;
+        ALTER TABLE guild_ticket_settings ADD COLUMN IF NOT EXISTS transcript_channel_id TEXT;
+        ALTER TABLE guild_ticket_settings ADD COLUMN IF NOT EXISTS waiting_category_id TEXT;
+
+        ALTER TABLE tickets ADD COLUMN IF NOT EXISTS log_channel_id TEXT;
+        ALTER TABLE tickets ADD COLUMN IF NOT EXISTS transcript_channel_id TEXT;
+        ALTER TABLE tickets ADD COLUMN IF NOT EXISTS waiting_at TIMESTAMPTZ;
+
+        ALTER TABLE ticket_panel_options ADD COLUMN IF NOT EXISTS transcript_on_close BOOLEAN;
+        ALTER TABLE tickets ADD COLUMN IF NOT EXISTS transcript_on_close BOOLEAN;
+
         UPDATE guild_ticket_settings
         SET ticket_category_id = COALESCE(ticket_category_id, open_category_id),
             ticket_log_channel_id = COALESCE(ticket_log_channel_id, log_channel_id),
@@ -263,11 +275,22 @@ const MIGRATIONS = [
             updated_at = COALESCE(updated_at, NOW());
 
         UPDATE tickets
+        SET claimed_by = NULL,
+            claimed_at = NULL
+        WHERE status <> 'open';
+
+        UPDATE tickets
         SET ticket_key = CASE
-              WHEN ticket_key ~ '^EVX-[0-9]{6,}$' THEN ticket_key
-              ELSE 'EVX-' || LPAD(id::text, 6, '0')
+              CASE
+              WHEN ticket_key IS DISTINCT FROM ('EVX-' || LPAD(id::text, 6, '0'))
+                THEN 'EVX-' || LPAD(id::text, 6, '0')
+              ELSE ticket_key
             END,
-            status = CASE WHEN status IN ('open', 'closed', 'deleted') THEN status ELSE 'open' END,
+            status = CASE
+              WHEN status IN ('open', 'closed', 'deleted') THEN status
+              WHEN status IN ('waiting', 'locked') THEN 'open'
+              ELSE 'open'
+            END,
             ticket_logs_enabled = COALESCE(ticket_logs_enabled, TRUE),
             moderation_logs_enabled = COALESCE(moderation_logs_enabled, TRUE),
             transcript_logs_enabled = COALESCE(transcript_logs_enabled, TRUE),
@@ -277,18 +300,17 @@ const MIGRATIONS = [
             close_behavior = CASE WHEN close_behavior IN ('move', 'stay') THEN close_behavior ELSE 'move' END,
             created_at = COALESCE(created_at, NOW());
 
-        UPDATE tickets
-        SET status = 'open',
-            claimed_by = NULL,
-            claimed_at = NULL
-        WHERE status IN ('waiting', 'locked');
-
         ALTER TABLE guild_ticket_settings DROP COLUMN IF EXISTS open_category_id;
         ALTER TABLE guild_ticket_settings DROP COLUMN IF EXISTS log_channel_id;
         ALTER TABLE guild_ticket_settings DROP COLUMN IF EXISTS transcript_channel_id;
+        ALTER TABLE guild_ticket_settings DROP COLUMN IF EXISTS waiting_category_id;
 
         ALTER TABLE tickets DROP COLUMN IF EXISTS log_channel_id;
         ALTER TABLE tickets DROP COLUMN IF EXISTS transcript_channel_id;
+        ALTER TABLE tickets DROP COLUMN IF EXISTS waiting_at;
+
+        ALTER TABLE ticket_panel_options DROP COLUMN IF EXISTS transcript_on_close;
+        ALTER TABLE tickets DROP COLUMN IF EXISTS transcript_on_close;
 
         ALTER TABLE guild_ticket_settings ALTER COLUMN ticket_logs_enabled SET DEFAULT TRUE;
         ALTER TABLE guild_ticket_settings ALTER COLUMN moderation_logs_enabled SET DEFAULT TRUE;
@@ -350,6 +372,8 @@ const MIGRATIONS = [
     transactional: false,
     async run(client) {
       await client.query(`
+        DROP INDEX CONCURRENTLY IF EXISTS tickets_one_active_per_type;
+
         CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS tickets_one_active_dedupe_idx
           ON tickets (guild_id, owner_id, option_id, dedupe_key)
           WHERE status = 'open' AND dedupe_key IS NOT NULL;
