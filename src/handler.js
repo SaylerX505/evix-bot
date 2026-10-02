@@ -39,17 +39,26 @@ export async function handleInteraction(interaction, { service, ui }) {
 
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === "panel") {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        const sub = interaction.options.getSubcommand();
+        const usesV2 = ["create", "edit"].includes(sub);
+        await interaction.deferReply({
+          flags: usesV2
+            ? MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral
+            : MessageFlags.Ephemeral,
+        });
         await handlePanelCommand(interaction, ui);
         return;
       }
       if (interaction.commandName === "ticket") {
         const sub = interaction.options.getSubcommand();
-        if (["setup", "config", "logs", "close", "delete", "transcript"].includes(sub)) {
-          await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        } else if (["info", "claim", "unclaim", "reopen", "add", "remove", "rename"].includes(sub)) {
-          await interaction.deferReply();
-        }
+        const normalEphemeral = sub === "logs";
+        const ephemeralV2 = ["setup", "config", "close", "delete", "transcript"].includes(sub);
+        const flags = ephemeralV2
+          ? MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral
+          : normalEphemeral
+            ? MessageFlags.Ephemeral
+            : MessageFlags.IsComponentsV2;
+        await interaction.deferReply({ flags });
         await handleTicketCommand(interaction, service, ui);
       }
       return;
@@ -79,7 +88,7 @@ export async function handleInteraction(interaction, { service, ui }) {
     if (interaction.isModalSubmit() && interaction.customId.startsWith("evix:modal:")) {
       const match = interaction.customId.match(/^evix:modal:(\d+)$/);
       if (!match) throw new Error("Invalid ticket form.");
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral });
       const option = await getPanelOption(match[1], interaction.guildId);
       if (!option) throw new Error("This ticket form is no longer available.");
       const fields = validateModalFields(option.modal_fields ?? []);
@@ -171,7 +180,7 @@ export async function handleInteraction(interaction, { service, ui }) {
     if (interaction.isModalSubmit() && interaction.customId.startsWith("evix:rename:")) {
       const match = interaction.customId.match(/^evix:rename:(\d+)$/);
       if (!match) throw new Error("Invalid rename form.");
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral });
       const ticket = await service.getTicket(interaction, match[1]);
       await service.withTicketActionLock(ticket.id, () =>
         service.rename(interaction, ticket, interaction.fields.getTextInputValue("name")),
@@ -189,13 +198,6 @@ export async function handleInteraction(interaction, { service, ui }) {
       deferredComponentUpdate = true;
 
       try {
-        const ticket = await service.getTicket(interaction, ticketId);
-        const canManage = service.canManageTicket(interaction.member, ticket);
-        const canClose = service.canClose(interaction.member, ticket);
-        if (!canManage && !((action === "close" || action === "keep-open") && canClose)) {
-          throw new Error("You are not authorized to confirm this action.");
-        }
-
         if (action === "keep-open" || action === "cancel") {
           await interaction.deleteReply().catch(() => null);
           return;
@@ -204,8 +206,8 @@ export async function handleInteraction(interaction, { service, ui }) {
         await interaction.deleteReply().catch(() => null);
 
         if (action === "close") {
-          await service.withTicketActionLock(ticket.id, () =>
-            service.close(interaction, ticket, { reply: false, closedBy: interaction.user.id }),
+          await service.withTicketActionLock(ticketId, () =>
+            service.close(interaction, { id: ticketId }, { reply: false, closedBy: interaction.user.id }),
           );
           await interaction.followUp({
             ...buildActionResult("Ticket Closed", "This ticket has been closed by <@" + interaction.user.id + ">."),
@@ -215,8 +217,8 @@ export async function handleInteraction(interaction, { service, ui }) {
         }
 
         const deletion = await service.withTicketActionLock(
-          ticket.id,
-          () => service.delete(interaction, ticket, { background: true }),
+          ticketId,
+          () => service.delete(interaction, { id: ticketId }, { background: true }),
         );
         if (!deletion?.started) return;
 
@@ -225,15 +227,15 @@ export async function handleInteraction(interaction, { service, ui }) {
           flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
         }).catch(() => null);
 
-        try {
-          await deletion.completion;
-        } catch (error) {
-          const normalized = normalizeError(error);
-          logInteractionError(interaction, normalized, error);
-          await interaction.followUp({
-            ...buildErrorResult(normalized),
-            flags: MessageFlags.Ephemeral,
-          }).catch(() => null);
+        if (deletion.completion && typeof deletion.completion.catch === "function") {
+          void deletion.completion.catch(async (error) => {
+            const normalized = normalizeError(error);
+            logInteractionError(interaction, normalized, error);
+            await interaction.followUp({
+              ...buildErrorResult(normalized),
+              flags: MessageFlags.Ephemeral,
+            }).catch(() => null);
+          });
         }
       } catch (error) {
         const normalized = normalizeError(error);
@@ -253,26 +255,21 @@ export async function handleInteraction(interaction, { service, ui }) {
       const [, ticketId, action] = match;
 
       {
-        const ephemeralActions = new Set(["close", "delete", "transcript"]);
+        const ephemeral = new Set(["close", "delete", "transcript"]).has(action);
         await interaction.deferReply({
-          flags: ephemeralActions.has(action) ? MessageFlags.Ephemeral : 0,
+          flags: MessageFlags.IsComponentsV2 | (ephemeral ? MessageFlags.Ephemeral : 0),
         });
       }
 
-      const ticket = await service.getTicket(interaction, ticketId);
-      const ownerAllowed = ticket.owner_id === interaction.user.id && ["close", "info"].includes(action);
-      if (!service.canManageTicket(interaction.member, ticket) && !ownerAllowed) throw new Error("You are not authorized to use this ticket control.");
-
-      if (action === "close") return await service.requestClose(interaction, ticket);
-      if (action === "delete") return await service.requestDelete(interaction, ticket);
-      if (action === "info") return await service.info(interaction, ticket);
-
-      const mutate = (callback) => service.withTicketActionLock(ticket.id, callback);
+      const mutate = (callback) => service.withTicketActionLock(ticketId, callback);
       switch (action) {
-        case "claim": return await mutate(() => service.claim(interaction, ticket));
-        case "unclaim": return await mutate(() => service.unclaim(interaction, ticket));
-        case "reopen": return await mutate(() => service.reopen(interaction, ticket));
-        case "transcript": return await mutate(() => service.sendTranscript(interaction, ticket));
+        case "close": return await service.requestClose(interaction, { id: ticketId });
+        case "delete": return await service.requestDelete(interaction, { id: ticketId });
+        case "info": return await service.info(interaction, { id: ticketId });
+        case "claim": return await mutate(() => service.claim(interaction, { id: ticketId }));
+        case "unclaim": return await mutate(() => service.unclaim(interaction, { id: ticketId }));
+        case "reopen": return await mutate(() => service.reopen(interaction, { id: ticketId }));
+        case "transcript": return await mutate(() => service.sendTranscript(interaction, { id: ticketId }));
         default: throw new Error("Unsupported ticket control.");
       }
     }
