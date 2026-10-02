@@ -38,6 +38,10 @@ async function respond(interaction, payload) {
 }
 function ephemeral(content) { return { content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } }; }
 function statusIsActive(status) { return status === "open"; }
+function isMissingDiscordChannelError(error) {
+  return String(error?.code || error?.rawError?.code || "") === "10003";
+}
+
 function statusName(status, ticketKey) { return status === "open" ? "ticket-" + ticketKey : status + "-" + ticketKey; }
 
 export class TicketService {
@@ -726,23 +730,25 @@ export class TicketService {
     try {
       await interaction.channel.delete("Evix ticket deleted");
     } catch (error) {
-      const restored = await updateTicket(
-        deleted.id,
-        { status: previousStatus, deleted_at: null },
-        { statuses: ["deleted"] },
-      ).catch(() => null);
+      if (!isMissingDiscordChannelError(error)) {
+        const restored = await updateTicket(
+          deleted.id,
+          { status: previousStatus, deleted_at: null },
+          { statuses: ["deleted"] },
+        ).catch(() => null);
 
-      if (restored) {
-        await this.refreshControlMessage(
-          interaction,
-          restored,
-          { replace: true, fallbackToKnownState: true },
-        ).catch((refreshError) => {
-          console.error("[evix-ticket-delete-rollback-control-error]", refreshError);
-        });
+        if (restored) {
+          await this.refreshControlMessage(
+            interaction,
+            restored,
+            { replace: true, fallbackToKnownState: true },
+          ).catch((refreshError) => {
+            console.error("[evix-ticket-delete-rollback-control-error]", refreshError);
+          });
+        }
+
+        throw new Error("Ticket deletion failed: " + (error?.message || "channel deletion failed"));
       }
-
-      throw new Error("Ticket deletion failed: " + (error?.message || "channel deletion failed"));
     }
 
     void addTicketEvent(deleted.id, "TICKET_DELETED", interaction.user.id)
