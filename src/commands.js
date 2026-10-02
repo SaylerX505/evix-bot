@@ -99,7 +99,6 @@ const panelCommand = new SlashCommandBuilder()
     .addBooleanOption((o) => o.setName("clear_ping_roles").setDescription("Clear the configured ping role"))
     .addStringOption((o) => o.setName("close_behavior").setDescription("Close routing behavior").addChoices({ name: "Move", value: "move" }, { name: "Stay", value: "stay" }))
     .addBooleanOption((o) => o.setName("allow_multiple").setDescription("Allow multiple active tickets"))
-    .addBooleanOption((o) => o.setName("transcript_on_close").setDescription("Create a transcript on close"))
     .addStringOption((o) => o.setName("action").setDescription("What should happen when selected").addChoices({ name: "Create ticket", value: "CREATE_TICKET" }, { name: "Nothing", value: "NOTHING" })))
   .addSubcommand((s) => s.setName("option-remove").setDescription("Remove a ticket option").addStringOption((o) => o.setName("panel").setDescription("Select a panel").setRequired(true).setAutocomplete(true)).addStringOption((o) => o.setName("option").setDescription("Select an option").setRequired(true).setAutocomplete(true)))
   .setDMPermission(false);
@@ -182,10 +181,17 @@ export async function handleTicketCommand(interaction, service, ui) {
     }
 
     const saved = await upsertGuildSettings(interaction.guildId, patch);
+    const transcriptLog = saved.transcript_logs_enabled === false
+      ? "off"
+      : saved.transcript_log_channel_id
+        ? "<#" + saved.transcript_log_channel_id + ">"
+        : saved.ticket_logs_enabled !== false && saved.ticket_log_channel_id
+          ? "fallback → <#" + saved.ticket_log_channel_id + ">"
+          : "off";
     return respond(interaction, ephemeral([
       "Ticket logs: " + (saved.ticket_logs_enabled !== false && saved.ticket_log_channel_id ? "<#" + saved.ticket_log_channel_id + ">" : "off"),
       "Moderation logs: " + (saved.moderation_logs_enabled !== false && saved.moderation_log_channel_id ? "<#" + saved.moderation_log_channel_id + ">" : "off"),
-      "Transcript logs: " + (saved.transcript_logs_enabled !== false && saved.transcript_log_channel_id ? "<#" + saved.transcript_log_channel_id + ">" : "off"),
+      "Transcript logs: " + transcriptLog,
     ].join("\n")));
   }
 
