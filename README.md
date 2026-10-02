@@ -80,6 +80,8 @@ Panel options support:
 
 The database is PostgreSQL and startup schema creation is additive/idempotent. Existing ticket data is never dropped by startup.
 
+Transcript generation is manual-only. The transcript audit event uses the dedicated transcript log channel when configured, otherwise it falls back to the ticket lifecycle log when ticket logs are enabled.
+
 ### Ticket forms
 
 Existing ticket options can still contain stored modal fields for backward compatibility, but `/panel option-add` and `/panel option-edit` no longer expose form configuration. New options use the standard ticket flow unless a form was already stored on that option.
