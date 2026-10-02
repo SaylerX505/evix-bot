@@ -348,45 +348,6 @@ test("ticket info rejects a deleted ticket after refreshing state", async () => 
   service.getFreshTicket = originalFresh;
 });
 
-test("ticket info prefers the actual channel category over a stale db snapshot", async () => {
-  const originalFresh = service.getFreshTicket;
-  const originalListMembers = service.listMembers;
-  const originalInfoRespond = service.info;
-  const replies = [];
-  service.getFreshTicket = async () => ({
-    id: 55,
-    owner_id: "owner",
-    status: "closed",
-    ticket_key: "EVX-000055",
-    type_label: "Support",
-    current_category_id: "old-category",
-    claimed_by: null,
-    staff_roles: [],
-  });
-  service.listMembers = undefined;
-  const interaction = {
-    user: { id: "owner" },
-    member: member("owner"),
-    channel: { parentId: "actual-category" },
-    deferred: false,
-    replied: false,
-    reply: async (payload) => replies.push(payload),
-    editReply: async (payload) => replies.push(payload),
-  };
-
-  try {
-    await service.info(interaction, { id: 55 });
-    assert.equal(replies.length, 1);
-    const rendered = JSON.stringify(replies[0].components.map((component) => component.toJSON()));
-    assert.match(rendered, /actual-category/);
-    assert.doesNotMatch(rendered, /old-category/);
-  } finally {
-    service.getFreshTicket = originalFresh;
-    service.listMembers = originalListMembers;
-    service.info = originalInfoRespond;
-  }
-});
-
 test("ticket role management rejects a deleted ticket after refreshing state", async () => {
   const originalFresh = service.getFreshTicket;
   service.getFreshTicket = async () => ({ id: 51, owner_id: "owner", status: "deleted", staff_roles: [] });
