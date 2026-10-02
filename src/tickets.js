@@ -351,7 +351,7 @@ export class TicketService {
     await respond(interaction, buildActionResult("Ticket Unclaimed", "The ticket is available for another staff member to claim."));
     void addTicketEvent(ticket.id, "TICKET_UNCLAIMED", interaction.user.id, { previous_claim: ticket.claimed_by })
       .catch((error) => console.error("[evix-ticket-unclaim-event-error]", error));
-    void this.refreshControlMessage(interaction, next, { fallbackToKnownState: true })
+    void this.refreshControlMessage(interaction, next, { fallbackToKnownState: true, useProvidedState: true })
       .catch((error) => console.error("[evix-ticket-refresh-after-unclaim-error]", error));
     void writeTicketLog(interaction.guild, next, "TICKET_UNCLAIMED", interaction.user.id)
       .catch((error) => console.error("[evix-ticket-unclaim-log-error]", error));
@@ -361,7 +361,7 @@ export class TicketService {
   async requestClose(interaction, ticket) {
     if (!this.canClose(interaction.member, ticket)) throw new Error("Only the ticket owner or configured staff can close this ticket.");
     if (ticket.status === "closed") {
-      await this.refreshControlMessage(interaction, ticket, { closed: true, closedBy: ticket.closed_by });
+      await this.refreshControlMessage(interaction, ticket, { closed: true, closedBy: ticket.closed_by, useProvidedState: true });
       return respond(interaction, buildActionResult("Ticket Already Closed", "This ticket is already closed. Use the controls on the closed ticket message."));
     }
     if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
@@ -443,6 +443,7 @@ export class TicketService {
           {
             replace: true,
             fallbackToKnownState: true,
+            useProvidedState: true,
           },
         ).catch((refreshError) => {
           console.error("[evix-ticket-close-rollback-control-error]", refreshError);
