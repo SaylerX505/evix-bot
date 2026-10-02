@@ -240,6 +240,7 @@ export async function getPanelOption(optionId, guildId = null) {
 }
 
 export async function updatePanelOption(optionId, patch) {
+  patch = Object.fromEntries(Object.entries(patch ?? {}).filter(([, value]) => value !== undefined));
   if (Object.hasOwn(patch, "label")) {
     patch = { ...patch, label: String(patch.label ?? "").trim() };
     if (!patch.label) throw new Error("Panel option name cannot be empty.");
