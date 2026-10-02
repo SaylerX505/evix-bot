@@ -109,11 +109,6 @@ const MIGRATIONS = [
           UNIQUE (guild_id, channel_id)
         );
 
-        CREATE INDEX IF NOT EXISTS tickets_guild_status_idx
-          ON tickets (guild_id, status);
-        CREATE INDEX IF NOT EXISTS tickets_owner_idx
-          ON tickets (guild_id, owner_id);
-
         CREATE TABLE IF NOT EXISTS ticket_members (
           ticket_id BIGINT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
           user_id TEXT NOT NULL,
@@ -131,15 +126,8 @@ const MIGRATIONS = [
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
 
-        CREATE INDEX IF NOT EXISTS panels_guild_idx
-          ON ticket_panels (guild_id);
-        CREATE INDEX IF NOT EXISTS panel_options_panel_idx
-          ON ticket_panel_options (panel_id);
-        CREATE INDEX IF NOT EXISTS ticket_members_ticket_idx
-          ON ticket_members (ticket_id);
-        CREATE INDEX IF NOT EXISTS ticket_events_ticket_idx
-          ON ticket_events (ticket_id, created_at);
-
+        ALTER TABLE guild_ticket_settings
+          ADD COLUMN IF NOT EXISTS open_category_id TEXT;
         ALTER TABLE guild_ticket_settings
           ADD COLUMN IF NOT EXISTS ticket_category_id TEXT;
         ALTER TABLE guild_ticket_settings
@@ -147,9 +135,13 @@ const MIGRATIONS = [
         ALTER TABLE guild_ticket_settings
           ADD COLUMN IF NOT EXISTS closed_category_id TEXT;
         ALTER TABLE guild_ticket_settings
+          ADD COLUMN IF NOT EXISTS log_channel_id TEXT;
+        ALTER TABLE guild_ticket_settings
           ADD COLUMN IF NOT EXISTS ticket_log_channel_id TEXT;
         ALTER TABLE guild_ticket_settings
           ADD COLUMN IF NOT EXISTS moderation_log_channel_id TEXT;
+        ALTER TABLE guild_ticket_settings
+          ADD COLUMN IF NOT EXISTS transcript_channel_id TEXT;
         ALTER TABLE guild_ticket_settings
           ADD COLUMN IF NOT EXISTS transcript_log_channel_id TEXT;
         ALTER TABLE guild_ticket_settings
@@ -160,35 +152,121 @@ const MIGRATIONS = [
           ADD COLUMN IF NOT EXISTS transcript_logs_enabled BOOLEAN NOT NULL DEFAULT TRUE;
         ALTER TABLE guild_ticket_settings
           ADD COLUMN IF NOT EXISTS default_ticket_limit INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE guild_ticket_settings
+          ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+        ALTER TABLE guild_ticket_settings
+          ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
+        ALTER TABLE ticket_panels
+          ADD COLUMN IF NOT EXISTS name TEXT;
+        ALTER TABLE ticket_panels
+          ADD COLUMN IF NOT EXISTS channel_id TEXT;
+        ALTER TABLE ticket_panels
+          ADD COLUMN IF NOT EXISTS message_id TEXT;
+        ALTER TABLE ticket_panels
+          ADD COLUMN IF NOT EXISTS component_mode TEXT;
+        ALTER TABLE ticket_panels
+          ADD COLUMN IF NOT EXISTS title TEXT;
+        ALTER TABLE ticket_panels
+          ADD COLUMN IF NOT EXISTS description TEXT;
         ALTER TABLE ticket_panels
           ADD COLUMN IF NOT EXISTS image_url TEXT;
         ALTER TABLE ticket_panels
-          ADD COLUMN IF NOT EXISTS footer_show_bot BOOLEAN NOT NULL DEFAULT FALSE;
+          ADD COLUMN IF NOT EXISTS accent_color INTEGER;
         ALTER TABLE ticket_panels
-          ADD COLUMN IF NOT EXISTS title TEXT NOT NULL DEFAULT '';
+          ADD COLUMN IF NOT EXISTS placeholder TEXT;
         ALTER TABLE ticket_panels
-          ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
+          ADD COLUMN IF NOT EXISTS footer TEXT;
         ALTER TABLE ticket_panels
-          ADD COLUMN IF NOT EXISTS footer TEXT NOT NULL DEFAULT '';
+          ADD COLUMN IF NOT EXISTS footer_show_bot BOOLEAN;
         ALTER TABLE ticket_panels
-          ADD COLUMN IF NOT EXISTS placeholder TEXT NOT NULL DEFAULT '';
+          ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ;
+        ALTER TABLE ticket_panels
+          ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
 
         ALTER TABLE ticket_panel_options
+          ADD COLUMN IF NOT EXISTS position INTEGER;
+        ALTER TABLE ticket_panel_options
+          ADD COLUMN IF NOT EXISTS component_kind TEXT;
+        ALTER TABLE ticket_panel_options
+          ADD COLUMN IF NOT EXISTS description TEXT;
+        ALTER TABLE ticket_panel_options
+          ADD COLUMN IF NOT EXISTS emoji TEXT;
+        ALTER TABLE ticket_panel_options
+          ADD COLUMN IF NOT EXISTS action TEXT;
+        ALTER TABLE ticket_panel_options
+          ADD COLUMN IF NOT EXISTS category_id TEXT;
+        ALTER TABLE ticket_panel_options
+          ADD COLUMN IF NOT EXISTS closed_category_id TEXT;
+        ALTER TABLE ticket_panel_options
+          ADD COLUMN IF NOT EXISTS staff_roles JSONB;
+        ALTER TABLE ticket_panel_options
+          ADD COLUMN IF NOT EXISTS ping_roles JSONB;
+        ALTER TABLE ticket_panel_options
+          ADD COLUMN IF NOT EXISTS log_channel_id TEXT;
+        ALTER TABLE ticket_panel_options
           ADD COLUMN IF NOT EXISTS moderation_log_channel_id TEXT;
+        ALTER TABLE ticket_panel_options
+          ADD COLUMN IF NOT EXISTS transcript_channel_id TEXT;
+        ALTER TABLE ticket_panel_options
+          ADD COLUMN IF NOT EXISTS welcome_message TEXT;
+        ALTER TABLE ticket_panel_options
+          ADD COLUMN IF NOT EXISTS ticket_name_template TEXT;
+        ALTER TABLE ticket_panel_options
+          ADD COLUMN IF NOT EXISTS close_behavior TEXT;
+        ALTER TABLE ticket_panel_options
+          ADD COLUMN IF NOT EXISTS allow_multiple BOOLEAN;
+        ALTER TABLE ticket_panel_options
+          ADD COLUMN IF NOT EXISTS button_style INTEGER;
+        ALTER TABLE ticket_panel_options
+          ADD COLUMN IF NOT EXISTS modal_fields JSONB;
+        ALTER TABLE ticket_panel_options
+          ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ;
+        ALTER TABLE ticket_panel_options
+          ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
 
         ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS panel_id BIGINT;
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS option_id BIGINT;
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS ticket_key TEXT;
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS channel_id TEXT;
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS owner_id TEXT;
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS type_label TEXT;
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS status TEXT;
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS claimed_by TEXT;
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ;
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS closed_by TEXT;
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS category_id TEXT;
+        ALTER TABLE tickets
           ADD COLUMN IF NOT EXISTS current_category_id TEXT;
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS closed_category_id TEXT;
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS staff_roles JSONB;
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS ping_roles JSONB;
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS dedupe_key TEXT;
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS log_channel_id TEXT;
         ALTER TABLE tickets
           ADD COLUMN IF NOT EXISTS ticket_log_channel_id TEXT;
         ALTER TABLE tickets
           ADD COLUMN IF NOT EXISTS moderation_log_channel_id TEXT;
         ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS transcript_channel_id TEXT;
+        ALTER TABLE tickets
           ADD COLUMN IF NOT EXISTS transcript_log_channel_id TEXT;
-        ALTER TABLE tickets
-          ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ;
-        ALTER TABLE tickets
-          ADD COLUMN IF NOT EXISTS closed_by TEXT;
         ALTER TABLE tickets
           ADD COLUMN IF NOT EXISTS ticket_logs_enabled BOOLEAN NOT NULL DEFAULT TRUE;
         ALTER TABLE tickets
@@ -196,7 +274,35 @@ const MIGRATIONS = [
         ALTER TABLE tickets
           ADD COLUMN IF NOT EXISTS transcript_logs_enabled BOOLEAN NOT NULL DEFAULT TRUE;
         ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS transcript_url TEXT;
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS control_message_id TEXT;
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS welcome_message TEXT NOT NULL DEFAULT 'Thanks for opening a ticket. A member of the team will be with you shortly.';
+        ALTER TABLE tickets
           ADD COLUMN IF NOT EXISTS close_behavior TEXT NOT NULL DEFAULT 'move';
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ;
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS reopened_at TIMESTAMPTZ;
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+        ALTER TABLE ticket_members
+          ADD COLUMN IF NOT EXISTS added_by TEXT;
+        ALTER TABLE ticket_members
+          ADD COLUMN IF NOT EXISTS added_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+        ALTER TABLE ticket_events
+          ADD COLUMN IF NOT EXISTS event_type TEXT;
+        ALTER TABLE ticket_events
+          ADD COLUMN IF NOT EXISTS actor_id TEXT;
+        ALTER TABLE ticket_events
+          ADD COLUMN IF NOT EXISTS details JSONB;
+        ALTER TABLE ticket_events
+          ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
       `);
     },
   },
