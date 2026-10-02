@@ -30,6 +30,7 @@ async function requirePanelDraft(interaction, panelId) {
 
 export async function handleInteraction(interaction, { service, ui }) {
   let deferredComponentUpdate = false;
+  let deferredV2 = false;
   try {
     if (interaction.isAutocomplete()) {
       if (interaction.commandName === "panel") await handlePanelAutocomplete(interaction);
@@ -46,6 +47,7 @@ export async function handleInteraction(interaction, { service, ui }) {
             ? MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral
             : MessageFlags.Ephemeral,
         });
+        deferredV2 = usesV2;
         await handlePanelCommand(interaction, ui);
         return;
       }
@@ -59,6 +61,7 @@ export async function handleInteraction(interaction, { service, ui }) {
             ? MessageFlags.Ephemeral
             : MessageFlags.IsComponentsV2;
         await interaction.deferReply({ flags });
+        deferredV2 = !normalEphemeral;
         await handleTicketCommand(interaction, service, ui);
       }
       return;
@@ -80,7 +83,8 @@ export async function handleInteraction(interaction, { service, ui }) {
       }
       const modal = buildTicketModal(option);
       if (modal) { await interaction.showModal(modal); return; }
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral });
+      deferredV2 = true;
       await service.createFromOption(interaction, option);
       return;
     }
@@ -89,6 +93,7 @@ export async function handleInteraction(interaction, { service, ui }) {
       const match = interaction.customId.match(/^evix:modal:(\d+)$/);
       if (!match) throw new Error("Invalid ticket form.");
       await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral });
+      deferredV2 = true;
       const option = await getPanelOption(match[1], interaction.guildId);
       if (!option) throw new Error("This ticket form is no longer available.");
       const fields = validateModalFields(option.modal_fields ?? []);
@@ -181,6 +186,7 @@ export async function handleInteraction(interaction, { service, ui }) {
       const match = interaction.customId.match(/^evix:rename:(\d+)$/);
       if (!match) throw new Error("Invalid rename form.");
       await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral });
+      deferredV2 = true;
       const ticket = await service.getTicket(interaction, match[1]);
       await service.withTicketActionLock(ticket.id, () =>
         service.rename(interaction, ticket, interaction.fields.getTextInputValue("name")),
@@ -259,6 +265,7 @@ export async function handleInteraction(interaction, { service, ui }) {
         await interaction.deferReply({
           flags: MessageFlags.IsComponentsV2 | (ephemeral ? MessageFlags.Ephemeral : 0),
         });
+        deferredV2 = true;
       }
 
       const mutate = (callback) => service.withTicketActionLock(ticketId, callback);
@@ -282,6 +289,6 @@ export async function handleInteraction(interaction, { service, ui }) {
       await interaction.respond([]).catch(() => null);
       return;
     }
-    await replySafely(interaction, deferredComponentUpdate ? buildV2ErrorResult(normalized) : buildErrorResult(normalized)).catch(() => null);
+    await replySafely(interaction, deferredComponentUpdate || deferredV2 ? buildV2ErrorResult(normalized) : buildErrorResult(normalized)).catch(() => null);
   }
 }
