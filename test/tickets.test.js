@@ -30,7 +30,6 @@ test("ticket owner may close and view info but is not staff", () => {
 
 test("control refresh requires fresh ticket state and does not trust stale input", async () => {
   const originalFresh = service.getFreshTicket;
-  const original = service.getFreshTicket;
   service.getFreshTicket = async () => ({
     id: 41, channel_id: "channel", control_message_id: "control",
     ticket_key: "EVX-000041", owner_id: "owner", type_label: "Support",
@@ -80,6 +79,8 @@ test("control refresh propagates fresh ticket lookup failures", async () => {
 });
 
 test("ticket control refreshes are serialized per ticket", async () => {
+  const originalFresh = service.getFreshTicket;
+  service.getFreshTicket = async (_interaction, ticket) => ticket;
   const events = [];
   let first = true;
   const message = {
@@ -122,10 +123,12 @@ test("ticket control refreshes are serialized per ticket", async () => {
   ]);
 
   assert.deepEqual(events, ["first-start", "first-end", "second-start", "second-end"]);
+  service.getFreshTicket = originalFresh;
 });
 
 
 test("closed ticket refresh always renders the closed control view", async () => {
+  const originalFresh = service.getFreshTicket;
   const edited = [];
   const channel = {
     isTextBased: () => true,
@@ -155,6 +158,7 @@ test("closed ticket refresh always renders the closed control view", async () =>
     staff_roles: [],
   };
 
+  service.getFreshTicket = async () => closedTicket;
   await service.refreshControlMessage(interaction, closedTicket);
 
   assert.equal(edited.length, 1);
@@ -163,6 +167,7 @@ test("closed ticket refresh always renders the closed control view", async () =>
   assert.equal(rendered.includes("Get Transcript"), true);
   assert.equal(rendered.includes("Reopen"), true);
   assert.equal(rendered.includes("Delete Ticket"), true);
+  service.getFreshTicket = originalFresh;
 });
 
 test("stale close action on an already-closed ticket repairs the public control view", async () => {
