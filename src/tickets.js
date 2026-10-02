@@ -121,23 +121,28 @@ export class TicketService {
     }
     const roleOverwrites = staffRoles.map((roleId) => ({ id: roleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks] }));
 
-    // Reserve the database ID first so the channel can be created with its final name in one Discord API call.
-    const reservedTicketId = await allocateTicketId();
-    const reservedTicketKey = "EVX-" + String(reservedTicketId).padStart(6, "0");
-    const finalName = sanitizeChannelName(renderTemplate(option.ticket_name_template, {
-      number: reservedTicketKey,
-      user: interaction.user.id,
-      username: interaction.user.username,
-      type: option.label,
-    }));
-    if (!finalName) throw new Error("The ticket name template produced an empty channel name.");
-
     let channel = null;
     let category = null;
     let lastCreateError = null;
+    let reservedTicketId = null;
+    let finalName = null;
+
     for (const categoryId of categoryIds) {
       try { ({ category } = await this.findCategoryForCreate(interaction.guild, [categoryId])); }
       catch (error) { lastCreateError = error; continue; }
+
+      if (reservedTicketId === null) {
+        reservedTicketId = await allocateTicketId();
+        const reservedTicketKey = "EVX-" + String(reservedTicketId).padStart(6, "0");
+        finalName = sanitizeChannelName(renderTemplate(option.ticket_name_template, {
+          number: reservedTicketKey,
+          user: interaction.user.id,
+          username: interaction.user.username,
+          type: option.label,
+        }));
+        if (!finalName) throw new Error("The ticket name template produced an empty channel name.");
+      }
+
       try {
         channel = await interaction.guild.channels.create({
           name: finalName, type: ChannelType.GuildText, parent: category.id,
