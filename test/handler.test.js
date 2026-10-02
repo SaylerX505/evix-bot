@@ -192,6 +192,29 @@ test("concurrent delete confirmations are serialized instead of returning ticket
   assert.deepEqual(service.calls, ["delete", "delete"]);
 });
 
+test("async delete failure is reported as a Components V2 error", async () => {
+  const interaction = makeButton("evix:confirm:42:delete");
+  const service = delayedService({
+    id: 42,
+    owner_id: "owner",
+    status: "closed",
+    staff_roles: [],
+  });
+  service.canManageTicket = () => true;
+  service.delete = async () => ({
+    completion: Promise.reject(new Error("channel delete failed")),
+  });
+
+  await handleInteraction(interaction, { service, ui: {} });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const errorPayload = interaction.followUpPayload;
+  assert.ok(errorPayload);
+  assert.equal(errorPayload.flags, MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral);
+  assert.equal(errorPayload.embeds, undefined);
+  assert.match(JSON.stringify(errorPayload.components.map((component) => component.toJSON())), /Evix Error/);
+});
+
 test("ticket confirmation success followups keep Components V2 and Ephemeral flags", async () => {
   for (const action of ["close", "delete"]) {
     const interaction = makeButton("evix:confirm:42:" + action);
