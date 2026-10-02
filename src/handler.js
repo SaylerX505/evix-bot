@@ -193,6 +193,9 @@ export async function handleInteraction(interaction, { service, ui }) {
       }
 
       try {
+        let deletion = null;
+        let alreadyDeleted = false;
+
         await service.withTicketActionLock(ticketId, async () => {
           const ticket = await service.getTicket(interaction, ticketId);
           const canManage = service.canManageTicket(interaction.member, ticket);
@@ -216,16 +219,20 @@ export async function handleInteraction(interaction, { service, ui }) {
             buildActionResult("Deleting Ticket", "The ticket is being removed now."),
           );
 
-          const deletion = await service.delete(interaction, ticket, { background: true });
-          if (!deletion?.started) {
-            await interaction.editReply(
-              buildActionResult("Ticket Deleted", "This ticket has already been deleted."),
-            ).catch(() => null);
-            return;
-          }
-
-          await deletion.start();
+          deletion = await service.delete(interaction, ticket, { background: true });
+          alreadyDeleted = deletion?.started === false;
         });
+
+        if (alreadyDeleted) {
+          await interaction.editReply(
+            buildActionResult("Ticket Deleted", "This ticket has already been deleted."),
+          ).catch(() => null);
+          return;
+        }
+
+        if (deletion?.started) {
+          await deletion.start();
+        }
       } catch (error) {
         const normalized = normalizeError(error);
         logInteractionError(interaction, normalized, error);
