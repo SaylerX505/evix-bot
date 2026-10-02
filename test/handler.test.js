@@ -54,7 +54,7 @@ test("keep-open removes only the close confirmation", async () => {
   assert.deepEqual(service.calls, []);
 });
 
-test("confirm close shows progress and completes the close operation", async () => {
+test("confirm close removes the confirmation and executes close", async () => {
   const interaction = makeButton("evix:confirm:42:close");
   const service = serviceFor({ id: 42, owner_id: "owner", status: "open", staff_roles: [] });
   await handleInteraction(interaction, { service, ui: {} });
@@ -62,7 +62,7 @@ test("confirm close shows progress and completes the close operation", async () 
   assert.deepEqual(service.calls, ["close"]);
 });
 
-test("confirm close surfaces a failure in the same progress response", async () => {
+test("confirm close surfaces a failure after removing the confirmation", async () => {
   const interaction = makeButton("evix:confirm:42:close");
   const service = serviceFor({ id: 42, owner_id: "owner", status: "open", staff_roles: [] });
   service.close = async () => { throw new Error("Close failed"); };
@@ -247,7 +247,7 @@ test("delete confirmation shows progress before channel deletion starts", async 
   await running;
 });
 
-test("ticket confirmation progress keeps Components V2 and Ephemeral flags", async () => {
+test("ticket confirmation success followups keep Components V2 and Ephemeral flags", async () => {
   for (const action of ["close", "delete"]) {
     const interaction = makeButton("evix:confirm:42:" + action);
     const service = delayedService({
@@ -259,7 +259,139 @@ test("ticket confirmation progress keeps Components V2 and Ephemeral flags", asy
     service.canManageTicket = () => true;
     await handleInteraction(interaction, { service, ui: {} });
 
-    const payload = interaction.editReplyPayloads?.at(-1);
+    const payload = interaction.followUpPayload;
     assert.ok(payload);
+    assert.equal(
+      payload.flags,
+      MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+      action,
+    );
+  }
+});
+
+test("confirmation buttons acknowledge before a slow ticket lookup", async () => {
+  for (const action of ["close", "keep-open", "delete", "cancel"]) {
+    const interaction = makeButton("evix:confirm:42:" + action);
+    const service = delayedService({
+      id: 42,
+      owner_id: "owner",
+      status: action === "delete" || action === "cancel" ? "closed" : "open",
+      staff_roles: [],
+    });
+    service.canManageTicket = () => action === "delete" || action === "cancel";
+    service.canClose = () => true;
+    await handleInteraction(interaction, { service, ui: {} });
+    assert.equal(interaction.calls[0], "deferUpdate", action);
+  }
+});
+
+
+test("component deferUpdate failures return a Components V2 error instead of an embed", async () => {
+  const panelId = "77";
+  setPanelDraft("guild", "user", panelId, {
+    id: Number(panelId),
+    name: "Panel",
+    title: "",
+    description: "",
+    image_url: null,
+    accent_color: 0x5865f2,
+    placeholder: "",
+    options: Array.from({ length: 26 }, (_, index) => ({
+      id: index + 1,
+      label: "Option " + (index + 1),
+      action: "CREATE_TICKET",
+    })),
+  });
+
+  const interaction = {
+    customId: "evix:panelstudio-modal:77:basic",
+    commandName: null,
+    guildId: "guild",
+    channelId: "channel",
+    user: { id: "user" },
+    member: { id: "user" },
+    memberPermissions: { has: () => true },
+    deferred: false,
+    replied: false,
+    isAutocomplete: () => false,
+    isChatInputCommand: () => false,
+    isStringSelectMenu: () => false,
+    isModalSubmit: () => true,
+    isButton: () => false,
+    fields: { fields: new Map([["name", { value: "Panel" }]]) },
+    client: { user: null },
+    deferUpdate: async () => { interaction.deferred = true; },
+    editReply: async (payload) => { interaction.errorPayload = payload; },
+    reply: async () => { interaction.replied = true; },
+  };
+
+  try {
+    await handleInteraction(interaction, { service: {}, ui: {} });
+    assert.ok(interaction.errorPayload);
+    assert.equal(interaction.errorPayload.flags, MessageFlags.IsComponentsV2);
+    assert.equal(interaction.errorPayload.embeds, undefined);
+    assert.match(JSON.stringify(interaction.errorPayload.components.map((component) => component.toJSON())), /Evix Error/);
+  } finally {
+    clearPanelDraft("guild", "user", panelId);
+  }
+});
+
+test("async ticket service failures are caught after the interaction is acknowledged", async () => {
+  const interaction = makeButton("evix:t:42:claim");
+  interaction.deferReply = async () => {
+    interaction.deferred = true;
+    interaction.calls.push("deferReply");
+  };
+  const service = delayedService({
+    id: 42,
+    owner_id: "owner",
+    status: "open",
+    staff_roles: [],
+  });
+  service.withTicketActionLock = async (_ticketId, callback) => callback();
+  service.claim = async () => { throw new Error("simulated claim failure"); };
+
+  await assert.doesNotReject(() => handleInteraction(interaction, { service, ui: {} }));
+  assert.equal(interaction.calls[0], "deferReply");
+  assert.equal(interaction.calls.includes("editReply"), true);
+});
+
+
+function makePanelCommandInteraction(subcommand) {
+  const calls = [];
+  const interaction = {
+    commandName: "panel",
+    customId: null,
+    guildId: "guild",
+    channelId: "channel",
+    user: { id: "user" },
+    member: { id: "user" },
+    memberPermissions: { has: () => false },
+    deferred: false,
+    replied: false,
+    calls,
+    options: {
+      getSubcommand: () => subcommand,
+      getString: () => null,
+    },
+    isAutocomplete: () => false,
+    isChatInputCommand: () => true,
+    isStringSelectMenu: () => false,
+    isModalSubmit: () => false,
+    isButton: () => false,
+    deferReply: async () => { interaction.deferred = true; calls.push("deferReply"); },
+    reply: async () => { interaction.replied = true; calls.push("reply"); },
+    editReply: async () => { calls.push("editReply"); },
+  };
+  return interaction;
+}
+
+test("panel create and edit acknowledge before permission/database work", async () => {
+  for (const subcommand of ["create", "edit"]) {
+    const interaction = makePanelCommandInteraction(subcommand);
+    await handleInteraction(interaction, { service: {}, ui: {} });
+    assert.equal(interaction.calls[0], "deferReply");
+    assert.equal(interaction.deferred, true);
+    assert.equal(interaction.calls.includes("editReply"), true);
   }
 });
