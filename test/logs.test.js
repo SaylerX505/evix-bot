@@ -79,3 +79,31 @@ test("non-lifecycle ticket events are not written to audit logs", async () => {
 
   assert.equal(guild.sent.length, 0);
 });
+
+test("transcript logging skips a missing dedicated channel and uses ticket log fallback", async () => {
+  const sent = [];
+  const fallback = {
+    isTextBased: () => true,
+    send: async (payload) => {
+      sent.push(payload);
+      return payload;
+    },
+  };
+  const guild = {
+    client: { user: { username: "Evix", displayAvatarURL: () => "https://cdn.discordapp.com/embed/avatars/0.png" } },
+    channels: {
+      fetch: async (id) => id === "missing" ? null : fallback,
+    },
+  };
+
+  const result = await writeTicketLog(guild, {
+    ...ticket,
+    transcript_log_channel_id: "missing",
+    transcript_channel_id: null,
+    ticket_log_channel_id: "fallback",
+  }, "TRANSCRIPT_CREATED", "user");
+
+  assert.equal(result, true);
+  assert.equal(sent.length, 1);
+});
+

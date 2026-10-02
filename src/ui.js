@@ -53,6 +53,7 @@ function ticketStatusLabel(status) {
 }
 
 function ticketControls(ticket) {
+  if (ticket.status === "deleted" || ticket.status === "closed") return [];
   const controls = [];
   if (ticket.claimed_by) {
     controls.push(new ButtonBuilder().setCustomId("evix:t:" + ticket.id + ":unclaim").setLabel("Unclaim Ticket").setStyle(ButtonStyle.Secondary));

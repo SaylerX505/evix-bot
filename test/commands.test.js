@@ -1,3 +1,23 @@
+test("ticket setup can preserve optional categories or clear them explicitly", () => {
+  const ticket = commands.find((command) => command.name === "ticket").toJSON();
+  const setup = ticket.options.find((option) => option.name === "setup");
+  assert.equal(setup.options.find((option) => option.name === "clear_backup_category").type, 5);
+  assert.equal(setup.options.find((option) => option.name === "clear_closed_category").type, 5);
+});
+
+test("ticket setup can clear optional categories and panel options no longer expose transcript-on-close", () => {
+  const ticket = commands.find((command) => command.name === "ticket").toJSON();
+  const setup = ticket.options.find((option) => option.name === "setup");
+  assert.equal(setup.options.find((option) => option.name === "backup_category").required, false);
+  assert.equal(setup.options.find((option) => option.name === "closed_category").required, false);
+
+  const panel = commands.find((command) => command.name === "panel").toJSON();
+  for (const name of ["option-add", "option-edit"]) {
+    const sub = panel.options.find((option) => option.name === name);
+    assert.equal(sub.options.some((option) => option.name === "transcript_on_close"), false);
+  }
+});
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ComponentType } from "discord.js";
@@ -79,3 +99,10 @@ test("panel option edit uses role selectors and removes unused fields", () => {
   assert.equal(edit.options.find((option) => option.name === "clear_ping_roles").type, 5);
   assert.equal(edit.options.some((option) => ["form", "name_template", "welcome"].includes(option.name)), false);
 });
+test("ticket log configuration exposes explicit fallback-clearing controls", () => {
+  const ticket = commands.find((command) => command.name === "ticket").toJSON();
+  const logs = ticket.options.find((option) => option.name === "logs");
+  assert.equal(logs.options.find((option) => option.name === "clear_transcript_channel").type, 5);
+  assert.equal(logs.options.find((option) => option.name === "clear_moderation_channel").type, 5);
+});
+

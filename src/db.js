@@ -75,7 +75,6 @@ export async function initDatabase(databaseUrl) {
       welcome_message TEXT NOT NULL DEFAULT '',
       ticket_name_template TEXT NOT NULL DEFAULT 'ticket-{number}',
       close_behavior TEXT NOT NULL DEFAULT 'move' CHECK (close_behavior IN ('move', 'stay')),
-      transcript_on_close BOOLEAN NOT NULL DEFAULT TRUE,
       allow_multiple BOOLEAN NOT NULL DEFAULT FALSE,
       button_style INTEGER NOT NULL DEFAULT 2 CHECK (button_style BETWEEN 1 AND 4),
       modal_fields JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -114,7 +113,6 @@ export async function initDatabase(databaseUrl) {
       control_message_id TEXT,
       welcome_message TEXT NOT NULL DEFAULT 'Thanks for opening a ticket. A member of the team will be with you shortly.',
       close_behavior TEXT NOT NULL DEFAULT 'move',
-      transcript_on_close BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       closed_at TIMESTAMPTZ,
       reopened_at TIMESTAMPTZ,
@@ -202,18 +200,26 @@ export async function initDatabase(databaseUrl) {
        OR ticket_log_channel_id IS NULL
        OR transcript_log_channel_id IS NULL;
 
+    ALTER TABLE tickets DROP CONSTRAINT IF EXISTS tickets_status_check;
+
     DROP INDEX IF EXISTS tickets_one_active_dedupe_idx;
     DROP INDEX IF EXISTS tickets_one_active_per_type;
-    CREATE UNIQUE INDEX IF NOT EXISTS tickets_one_active_dedupe_idx
-      ON tickets (guild_id, owner_id, option_id, dedupe_key)
-      WHERE status IN ('open','locked') AND dedupe_key IS NOT NULL;
 
-    ALTER TABLE tickets DROP CONSTRAINT IF EXISTS tickets_status_check;
-    UPDATE tickets SET status = 'open' WHERE status = 'waiting';
+    UPDATE tickets
+    SET status = 'open', claimed_by = NULL, claimed_at = NULL
+    WHERE status IN ('waiting', 'locked');
+
     ALTER TABLE guild_ticket_settings DROP COLUMN IF EXISTS waiting_category_id;
     ALTER TABLE tickets DROP COLUMN IF EXISTS waiting_at;
+    ALTER TABLE ticket_panel_options DROP COLUMN IF EXISTS transcript_on_close;
+    ALTER TABLE tickets DROP COLUMN IF EXISTS transcript_on_close;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS tickets_one_active_dedupe_idx
+      ON tickets (guild_id, owner_id, option_id, dedupe_key)
+      WHERE status = 'open' AND dedupe_key IS NOT NULL;
+
     ALTER TABLE tickets ADD CONSTRAINT tickets_status_check
-      CHECK (status IN ('open','locked','closed','deleted'));
+      CHECK (status IN ('open','closed','deleted'));
 
     ALTER TABLE ticket_panels DROP CONSTRAINT IF EXISTS ticket_panels_component_mode_check;
     ALTER TABLE ticket_panels ADD CONSTRAINT ticket_panels_component_mode_check
@@ -386,7 +392,7 @@ export async function createPanel(data) {
     const panel = rows[0];
     if (data.withDefaultOption !== false) {
       await client.query(
-        "INSERT INTO ticket_panel_options (panel_id,position,component_kind,label,description,emoji,action,category_id,closed_category_id,staff_roles,ping_roles,log_channel_id,moderation_log_channel_id,transcript_channel_id,welcome_message,ticket_name_template,close_behavior,transcript_on_close,allow_multiple,button_style,modal_fields) " +
+        "INSERT INTO ticket_panel_options (panel_id,position,component_kind,label,description,emoji,action,category_id,closed_category_id,staff_roles,ping_roles,log_channel_id,moderation_log_channel_id,transcript_channel_id,welcome_message,ticket_name_template,close_behavior,allow_multiple,button_style,modal_fields) " +
         "VALUES ($1,0,'dropdown','Open Ticket',NULL,NULL,'CREATE_TICKET',NULL,NULL,'[]'::jsonb,'[]'::jsonb,NULL,NULL,NULL,'','ticket-{number}','move',TRUE,FALSE,2,'[]'::jsonb)",
         [panel.id],
       );
@@ -446,8 +452,8 @@ export async function resetPanel(panelId) {
     if (!panel) return null;
 
     await client.query(
-      "INSERT INTO ticket_panel_options (panel_id,position,component_kind,label,description,emoji,action,category_id,closed_category_id,staff_roles,ping_roles,log_channel_id,moderation_log_channel_id,transcript_channel_id,welcome_message,ticket_name_template,close_behavior,transcript_on_close,allow_multiple,button_style,modal_fields) " +
-      "VALUES ($1,0,'dropdown','Open Ticket',NULL,NULL,'CREATE_TICKET',NULL,NULL,'[]'::jsonb,'[]'::jsonb,NULL,NULL,NULL,'','ticket-{number}','move',TRUE,FALSE,2,'[]'::jsonb)",
+      "INSERT INTO ticket_panel_options (panel_id,position,component_kind,label,description,emoji,action,category_id,closed_category_id,staff_roles,ping_roles,log_channel_id,moderation_log_channel_id,transcript_channel_id,welcome_message,ticket_name_template,close_behavior,allow_multiple,button_style,modal_fields) " +
+      "VALUES ($1,0,'dropdown','Open Ticket',NULL,NULL,'CREATE_TICKET',NULL,NULL,'[]'::jsonb,'[]'::jsonb,NULL,NULL,NULL,'','ticket-{number}','move',FALSE,2,'[]'::jsonb)",
       [panelId],
     );
 
@@ -488,8 +494,8 @@ export async function addPanelOption(data) {
     const position = Number(positionRows[0]?.next_position ?? 0);
 
     const { rows } = await client.query(
-      "INSERT INTO ticket_panel_options (panel_id,position,component_kind,label,description,emoji,action,category_id,closed_category_id,staff_roles,ping_roles,log_channel_id,moderation_log_channel_id,transcript_channel_id,welcome_message,ticket_name_template,close_behavior,transcript_on_close,allow_multiple,button_style,modal_fields) " +
-      "VALUES ($1,$2,'dropdown',$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20::jsonb) RETURNING *",
+      "INSERT INTO ticket_panel_options (panel_id,position,component_kind,label,description,emoji,action,category_id,closed_category_id,staff_roles,ping_roles,log_channel_id,moderation_log_channel_id,transcript_channel_id,welcome_message,ticket_name_template,close_behavior,allow_multiple,button_style,modal_fields) " +
+      "VALUES ($1,$2,'dropdown',$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb) RETURNING *",
       [
         data.panelId,
         position,
@@ -507,7 +513,6 @@ export async function addPanelOption(data) {
         data.welcomeMessage ?? "",
         data.ticketNameTemplate || "ticket-{number}",
         data.closeBehavior || "move",
-        data.transcriptOnClose !== false,
         data.allowMultiple === true,
         data.buttonStyle ?? 2,
         JSON.stringify(data.modalFields ?? []),
@@ -538,7 +543,7 @@ export async function updatePanelOption(optionId, patch) {
   const allowed = [
     "position","component_kind","label","description","emoji","action","category_id","closed_category_id",
     "staff_roles","ping_roles","log_channel_id","moderation_log_channel_id","transcript_channel_id","welcome_message",
-    "ticket_name_template","close_behavior","transcript_on_close","allow_multiple","button_style","modal_fields"
+    "ticket_name_template","close_behavior","allow_multiple","button_style","modal_fields"
   ];
   const keys = Object.keys(patch).filter((key) => allowed.includes(key));
   if (!keys.length) throw new Error("No editable option fields were provided.");
@@ -566,7 +571,7 @@ export async function getTicketByChannel(guildId, channelId) {
 
 export async function getOpenTicketForUser(guildId, ownerId, optionId) {
   const { rows } = await query(
-    "SELECT * FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND option_id=$3 AND status IN ('open','locked') ORDER BY created_at DESC LIMIT 1",
+    "SELECT * FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND option_id=$3 AND status = 'open' ORDER BY created_at DESC LIMIT 1",
     [guildId, ownerId, optionId],
   );
   return rows[0] ?? null;
@@ -578,7 +583,7 @@ export async function createTicket(data) {
 
     if (Number.isInteger(data.ticketLimit) && data.ticketLimit > 0) {
       const { rows: countRows } = await client.query(
-        "SELECT COUNT(*)::int AS count FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND status IN ('open','locked')",
+        "SELECT COUNT(*)::int AS count FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND status = 'open'",
         [data.guildId, data.ownerId],
       );
       if (countRows[0].count >= data.ticketLimit) {
@@ -590,8 +595,8 @@ export async function createTicket(data) {
 
     const { rows } = await client.query(
       "WITH next_id AS (SELECT nextval('tickets_id_seq') AS id) " +
-      "INSERT INTO tickets (id,guild_id,panel_id,option_id,ticket_key,channel_id,owner_id,type_label,status,category_id,current_category_id,closed_category_id,staff_roles,ping_roles,dedupe_key,log_channel_id,ticket_log_channel_id,moderation_log_channel_id,transcript_channel_id,transcript_log_channel_id,ticket_logs_enabled,moderation_logs_enabled,transcript_logs_enabled,control_message_id,welcome_message,close_behavior,transcript_on_close) " +
-      "SELECT id,$1,$2,$3,'EVX-' || LPAD(id::text,6,'0'),$4,$5,$6,'open',$7,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$12,$13,$14,$14,$15,$16,$17,$18,$19,$20,$21 FROM next_id RETURNING *",
+      "INSERT INTO tickets (id,guild_id,panel_id,option_id,ticket_key,channel_id,owner_id,type_label,status,category_id,current_category_id,closed_category_id,staff_roles,ping_roles,dedupe_key,log_channel_id,ticket_log_channel_id,moderation_log_channel_id,transcript_channel_id,transcript_log_channel_id,ticket_logs_enabled,moderation_logs_enabled,transcript_logs_enabled,control_message_id,welcome_message,close_behavior) " +
+      "SELECT id,$1,$2,$3,'EVX-' || LPAD(id::text,6,'0'),$4,$5,$6,'open',$7,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$12,$13,$14,$14,$15,$16,$17,$18,$19,$20 FROM next_id RETURNING *",
       [
         data.guildId,data.panelId,data.optionId,data.channelId,data.ownerId,data.typeLabel,data.categoryId,data.closedCategoryId,
         JSON.stringify(unique(data.staffRoles)),JSON.stringify(unique(data.pingRoles)),data.dedupeKey ?? null,
@@ -600,7 +605,6 @@ export async function createTicket(data) {
         data.controlMessageId ?? null,
         data.welcomeMessage || "Thanks for opening a ticket. A member of the team will be with you shortly.",
         data.closeBehavior || "move",
-        data.transcriptOnClose !== false,
       ],
     );
     return rows[0];
@@ -664,7 +668,7 @@ export async function listTicketEvents(ticketId) {
 
 export async function countOpenTickets(guildId, ownerId) {
   const { rows } = await query(
-    "SELECT COUNT(*)::int AS count FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND status IN ('open','locked')",
+    "SELECT COUNT(*)::int AS count FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND status = 'open'",
     [guildId,ownerId],
   );
   return rows[0].count;

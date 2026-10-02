@@ -54,12 +54,16 @@ const ticketCommand = new SlashCommandBuilder()
     .addChannelOption((o) => channelOption(o, "tickets_category", "Main ticket category", [ChannelType.GuildCategory]).setRequired(true))
     .addChannelOption((o) => channelOption(o, "backup_category", "Optional backup ticket category", [ChannelType.GuildCategory]))
     .addChannelOption((o) => channelOption(o, "closed_category", "Optional closed ticket category", [ChannelType.GuildCategory]))
+    .addBooleanOption((o) => o.setName("clear_backup_category").setDescription("Clear the configured backup category"))
+    .addBooleanOption((o) => o.setName("clear_closed_category").setDescription("Clear the configured closed category"))
     .addIntegerOption((o) => o.setName("ticket_limit").setDescription("Open tickets per member").setMinValue(1).setMaxValue(25)))
   .addSubcommand((s) => s.setName("config").setDescription("View ticket configuration"))
   .addSubcommand((s) => s.setName("logs").setDescription("Configure ticket logs")
     .addChannelOption((o) => channelOption(o, "ticket_channel", "Ticket lifecycle log channel", [ChannelType.GuildText]))
     .addChannelOption((o) => channelOption(o, "moderation_channel", "Moderation log channel", [ChannelType.GuildText]))
     .addChannelOption((o) => channelOption(o, "transcript_channel", "Transcript log channel", [ChannelType.GuildText]))
+    .addBooleanOption((o) => o.setName("clear_moderation_channel").setDescription("Use ticket log as moderation fallback"))
+    .addBooleanOption((o) => o.setName("clear_transcript_channel").setDescription("Use ticket log as transcript fallback"))
     .addBooleanOption((o) => o.setName("disable_ticket").setDescription("Disable ticket lifecycle logs"))
     .addBooleanOption((o) => o.setName("disable_moderation").setDescription("Disable moderation logs"))
     .addBooleanOption((o) => o.setName("disable_transcript").setDescription("Disable transcript logs")))
@@ -84,8 +88,7 @@ const panelCommand = new SlashCommandBuilder()
     .addRoleOption((o) => o.setName("staff_roles").setDescription("Optional staff role"))
     .addRoleOption((o) => o.setName("ping_roles").setDescription("Optional role to ping when a ticket is created"))
     .addStringOption((o) => o.setName("close_behavior").setDescription("Optional close routing behavior").addChoices({ name: "Move", value: "move" }, { name: "Stay", value: "stay" }))
-    .addBooleanOption((o) => o.setName("allow_multiple").setDescription("Allow multiple active tickets of this option"))
-    .addBooleanOption((o) => o.setName("transcript_on_close").setDescription("Create a transcript on close")))
+    .addBooleanOption((o) => o.setName("allow_multiple").setDescription("Allow multiple active tickets of this option")))
   .addSubcommand((s) => s.setName("option-edit").setDescription("Edit a ticket option")
     .addStringOption((o) => o.setName("panel").setDescription("Select a panel").setRequired(true).setAutocomplete(true))
     .addStringOption((o) => o.setName("option").setDescription("Select an option").setRequired(true).setAutocomplete(true))
@@ -94,13 +97,14 @@ const panelCommand = new SlashCommandBuilder()
     .addStringOption((o) => o.setName("emoji").setDescription("Emoji; use - to clear"))
     .addChannelOption((o) => channelOption(o, "category", "Optional category override", [ChannelType.GuildCategory]))
     .addChannelOption((o) => channelOption(o, "closed_category", "Optional closed-category override", [ChannelType.GuildCategory]))
+    .addBooleanOption((o) => o.setName("clear_category").setDescription("Use the global ticket category"))
+    .addBooleanOption((o) => o.setName("clear_closed_category").setDescription("Use the global closed category"))
     .addRoleOption((o) => o.setName("staff_roles").setDescription("Select staff role to set"))
     .addRoleOption((o) => o.setName("ping_roles").setDescription("Select role to ping when a ticket is created"))
     .addBooleanOption((o) => o.setName("clear_staff_roles").setDescription("Clear the configured staff role"))
     .addBooleanOption((o) => o.setName("clear_ping_roles").setDescription("Clear the configured ping role"))
     .addStringOption((o) => o.setName("close_behavior").setDescription("Close routing behavior").addChoices({ name: "Move", value: "move" }, { name: "Stay", value: "stay" }))
     .addBooleanOption((o) => o.setName("allow_multiple").setDescription("Allow multiple active tickets"))
-    .addBooleanOption((o) => o.setName("transcript_on_close").setDescription("Create a transcript on close"))
     .addStringOption((o) => o.setName("action").setDescription("What should happen when selected").addChoices({ name: "Create ticket", value: "CREATE_TICKET" }, { name: "Nothing", value: "NOTHING" })))
   .addSubcommand((s) => s.setName("option-remove").setDescription("Remove a ticket option").addStringOption((o) => o.setName("panel").setDescription("Select a panel").setRequired(true).setAutocomplete(true)).addStringOption((o) => o.setName("option").setDescription("Select an option").setRequired(true).setAutocomplete(true)))
   .setDMPermission(false);
@@ -136,12 +140,23 @@ export async function handleTicketCommand(interaction, service, ui) {
 
   if (sub === "setup") {
     const ticketsCategory = interaction.options.getChannel("tickets_category", true);
-    const saved = await upsertGuildSettings(interaction.guildId, {
+    const backupCategory = interaction.options.getChannel("backup_category");
+    const closedCategory = interaction.options.getChannel("closed_category");
+    const clearBackup = interaction.options.getBoolean("clear_backup_category") === true;
+    const clearClosed = interaction.options.getBoolean("clear_closed_category") === true;
+    if (backupCategory && clearBackup) throw new Error("Choose either a backup category or clear backup category.");
+    if (closedCategory && clearClosed) throw new Error("Choose either a closed category or clear closed category.");
+
+    const patch = {
       ticket_category_id: ticketsCategory.id,
-      backup_category_id: interaction.options.getChannel("backup_category")?.id,
-      closed_category_id: interaction.options.getChannel("closed_category")?.id,
       default_ticket_limit: interaction.options.getInteger("ticket_limit") ?? undefined,
-    });
+    };
+    if (clearBackup) patch.backup_category_id = null;
+    else if (backupCategory) patch.backup_category_id = backupCategory.id;
+    if (clearClosed) patch.closed_category_id = null;
+    else if (closedCategory) patch.closed_category_id = closedCategory.id;
+
+    const saved = await upsertGuildSettings(interaction.guildId, patch);
     return respond(interaction, { ...ui.buildSetupSummary(saved), flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2 });
   }
   if (sub === "config") {
@@ -153,12 +168,18 @@ export async function handleTicketCommand(interaction, service, ui) {
     const ticketChannel = interaction.options.getChannel("ticket_channel");
     const moderationChannel = interaction.options.getChannel("moderation_channel");
     const transcriptChannel = interaction.options.getChannel("transcript_channel");
+    const clearModeration = interaction.options.getBoolean("clear_moderation_channel") === true;
+    const clearTranscript = interaction.options.getBoolean("clear_transcript_channel") === true;
     const disableTicket = interaction.options.getBoolean("disable_ticket") === true;
     const disableModeration = interaction.options.getBoolean("disable_moderation") === true;
     const disableTranscript = interaction.options.getBoolean("disable_transcript") === true;
     if (disableTicket && ticketChannel) throw new Error("Choose either a ticket log channel or disable ticket logs.");
-    if (disableModeration && moderationChannel) throw new Error("Choose either a moderation log channel or disable moderation logs.");
-    if (disableTranscript && transcriptChannel) throw new Error("Choose either a transcript log channel or disable transcript logs.");
+    if (disableModeration && moderationChannel) throw new Error("Choose either a moderation log channel, clear the channel, or disable moderation logs.");
+    if (disableTranscript && transcriptChannel) throw new Error("Choose either a transcript log channel, clear the channel, or disable transcript logs.");
+    if (clearModeration && moderationChannel) throw new Error("Choose either a moderation log channel or clear the channel.");
+    if (clearTranscript && transcriptChannel) throw new Error("Choose either a transcript log channel or clear the channel.");
+    if (clearModeration && disableModeration) throw new Error("Choose either clear moderation channel or disable moderation logs.");
+    if (clearTranscript && disableTranscript) throw new Error("Choose either clear transcript channel or disable transcript logs.");
 
     const patch = {};
     if (disableTicket) {
@@ -170,12 +191,19 @@ export async function handleTicketCommand(interaction, service, ui) {
     }
     if (disableModeration) {
       patch.moderation_logs_enabled = false;
+    } else if (clearModeration) {
+      patch.moderation_log_channel_id = null;
+      patch.moderation_logs_enabled = true;
     } else if (moderationChannel) {
       patch.moderation_log_channel_id = moderationChannel.id;
       patch.moderation_logs_enabled = true;
     }
     if (disableTranscript) {
       patch.transcript_logs_enabled = false;
+    } else if (clearTranscript) {
+      patch.transcript_log_channel_id = null;
+      patch.transcript_channel_id = null;
+      patch.transcript_logs_enabled = true;
     } else if (transcriptChannel) {
       patch.transcript_log_channel_id = transcriptChannel.id;
       patch.transcript_channel_id = transcriptChannel.id;
@@ -183,10 +211,17 @@ export async function handleTicketCommand(interaction, service, ui) {
     }
 
     const saved = await upsertGuildSettings(interaction.guildId, patch);
+    const transcriptLog = saved.transcript_logs_enabled === false
+      ? "off"
+      : saved.transcript_log_channel_id
+        ? "<#" + saved.transcript_log_channel_id + ">"
+        : saved.ticket_logs_enabled !== false && saved.ticket_log_channel_id
+          ? "fallback → <#" + saved.ticket_log_channel_id + ">"
+          : "off";
     return respond(interaction, ephemeral([
       "Ticket logs: " + (saved.ticket_logs_enabled !== false && saved.ticket_log_channel_id ? "<#" + saved.ticket_log_channel_id + ">" : "off"),
       "Moderation logs: " + (saved.moderation_logs_enabled !== false && saved.moderation_log_channel_id ? "<#" + saved.moderation_log_channel_id + ">" : "off"),
-      "Transcript logs: " + (saved.transcript_logs_enabled !== false && saved.transcript_log_channel_id ? "<#" + saved.transcript_log_channel_id + ">" : "off"),
+      "Transcript logs: " + transcriptLog,
     ].join("\n")));
   }
 
@@ -266,7 +301,6 @@ export async function handlePanelCommand(interaction, ui) {
     const pingRole = interaction.options.getRole("ping_roles");
     const closeBehavior = interaction.options.getString("close_behavior");
     const allowMultiple = interaction.options.getBoolean("allow_multiple");
-    const transcriptOnClose = interaction.options.getBoolean("transcript_on_close");
     const staffRoles = staffRole ? [staffRole.id] : [];
     const pingRoles = pingRole ? [pingRole.id] : [];
     await validateConfiguredRoles(interaction.guild, [...staffRoles, ...pingRoles]);
@@ -283,7 +317,6 @@ export async function handlePanelCommand(interaction, ui) {
       pingRoles,
       closeBehavior: closeBehavior || "move",
       allowMultiple: allowMultiple === true,
-      transcriptOnClose: transcriptOnClose !== false,
     });
 
     const refreshed = await getPanel(interaction.guildId, panel.id);
@@ -325,22 +358,27 @@ export async function handlePanelCommand(interaction, ui) {
     const emoji = interaction.options.getString("emoji");
     const category = interaction.options.getChannel("category");
     const closedCategory = interaction.options.getChannel("closed_category");
+    const clearCategory = interaction.options.getBoolean("clear_category") === true;
+    const clearClosedCategory = interaction.options.getBoolean("clear_closed_category") === true;
     const staffRole = interaction.options.getRole("staff_roles");
     const pingRole = interaction.options.getRole("ping_roles");
     const clearStaffRoles = interaction.options.getBoolean("clear_staff_roles") === true;
     const clearPingRoles = interaction.options.getBoolean("clear_ping_roles") === true;
     const closeBehavior = interaction.options.getString("close_behavior");
     const allowMultiple = interaction.options.getBoolean("allow_multiple");
-    const transcriptOnClose = interaction.options.getBoolean("transcript_on_close");
     const action = interaction.options.getString("action");
     const name = interaction.options.getString("name");
 
+    if (category && clearCategory) throw new Error("Choose either a category or clear category.");
+    if (closedCategory && clearClosedCategory) throw new Error("Choose either a closed category or clear closed category.");
     if (staffRole || pingRole) await validateConfiguredRoles(interaction.guild, [staffRole?.id, pingRole?.id]);
     if (name !== null) patch.label = name;
     if (description !== null) patch.description = description === "-" ? null : description;
     if (emoji !== null) patch.emoji = emoji === "-" ? null : emoji;
-    if (category) patch.category_id = category.id;
-    if (closedCategory) patch.closed_category_id = closedCategory.id;
+    if (clearCategory) patch.category_id = null;
+    else if (category) patch.category_id = category.id;
+    if (clearClosedCategory) patch.closed_category_id = null;
+    else if (closedCategory) patch.closed_category_id = closedCategory.id;
     if (staffRole && clearStaffRoles) throw new Error("Choose either a staff role or clear staff roles.");
     if (pingRole && clearPingRoles) throw new Error("Choose either a ping role or clear ping roles.");
     if (clearStaffRoles) patch.staff_roles = [];
@@ -349,7 +387,6 @@ export async function handlePanelCommand(interaction, ui) {
     else if (pingRole) patch.ping_roles = [pingRole.id];
     if (closeBehavior !== null) patch.close_behavior = closeBehavior;
     if (allowMultiple !== null) patch.allow_multiple = allowMultiple;
-    if (transcriptOnClose !== null) patch.transcript_on_close = transcriptOnClose;
     if (action !== null) patch.action = action;
 
     const updated = Object.keys(patch).length ? await updatePanelOption(optionId, patch) : target;

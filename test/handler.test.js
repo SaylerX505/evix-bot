@@ -23,7 +23,7 @@ function makeButton(customId) {
     isButton: () => true,
     deferUpdate: async () => { interaction.deferred = true; calls.push("deferUpdate"); },
     deleteReply: async () => { calls.push("deleteReply"); },
-    followUp: async () => { calls.push("followUp"); },
+    followUp: async (payload) => { interaction.followUpPayload = payload; calls.push("followUp"); },
     reply: async () => { interaction.replied = true; calls.push("reply"); },
     editReply: async () => { calls.push("editReply"); },
     guild: {},
@@ -158,6 +158,28 @@ test("concurrent delete confirmations are serialized instead of returning ticket
   await Promise.all(interactions.map((interaction) => handleInteraction(interaction, { service, ui: {} })));
   assert.equal(maxRunning, 1);
   assert.deepEqual(service.calls, ["delete", "delete"]);
+});
+
+test("ticket confirmation success followups keep Components V2 and Ephemeral flags", async () => {
+  for (const action of ["close", "delete"]) {
+    const interaction = makeButton("evix:confirm:42:" + action);
+    const service = delayedService({
+      id: 42,
+      owner_id: "owner",
+      status: action === "delete" ? "closed" : "open",
+      staff_roles: [],
+    });
+    service.canManageTicket = () => true;
+    await handleInteraction(interaction, { service, ui: {} });
+
+    const payload = interaction.followUpPayload;
+    assert.ok(payload);
+    assert.equal(
+      payload.flags,
+      MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+      action,
+    );
+  }
 });
 
 test("confirmation buttons acknowledge before a slow ticket lookup", async () => {

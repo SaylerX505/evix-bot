@@ -4,7 +4,7 @@ import { writeTicketLog } from "./logs.js";
 import { buildActionResult, buildClaimResult, buildClosedTicketView, buildDeleteConfirmation, buildInfoView, buildTicketView, buildCloseConfirmation } from "./ui.js";
 import { buildTranscript, transcriptAttachment } from "./transcript.js";
 import { transitionTicket } from "./state.js";
-import { categoryCandidates, findTicketCreationCategory, moveTicketChannel } from "./routing.js";
+import { categoryCandidates, findTicketCreationCategory, findTicketReopenCategory, moveTicketChannel } from "./routing.js";
 import { formatDuration, isStaff, renderTemplate, sanitizeChannelName, unique } from "./utils.js";
 
 const BOT_PERMISSIONS = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels];
@@ -52,9 +52,17 @@ export class TicketService {
   }
 
   async getTicket(interaction, ticketId = null) {
-    const ticket = await getTicketByChannel(interaction.guildId, interaction.channelId);
+    let ticket = await getTicketByChannel(interaction.guildId, interaction.channelId);
+    if (!ticket && ticketId !== null) {
+      const candidate = await getTicketById(interaction.guildId, ticketId);
+      if (candidate && String(candidate.channel_id) === String(interaction.channelId)) {
+        ticket = candidate;
+      }
+    }
     if (!ticket) throw new Error("This channel is not an Evix ticket.");
-    if (ticketId !== null && String(ticket.id) !== String(ticketId)) throw new Error("This ticket is not available in the current channel.");
+    if (ticketId !== null && String(ticket.id) !== String(ticketId)) {
+      throw new Error("This ticket is not available in the current channel.");
+    }
     return ticket;
   }
 
@@ -133,7 +141,7 @@ export class TicketService {
         moderationLogChannelId: option.moderation_log_channel_id || settings.moderation_log_channel_id,
         transcriptChannelId: option.transcript_channel_id || settings.transcript_log_channel_id || settings.transcript_channel_id,
         ticketLogsEnabled: settings.ticket_logs_enabled !== false, moderationLogsEnabled: settings.moderation_logs_enabled !== false, transcriptLogsEnabled: settings.transcript_logs_enabled !== false,
-        ticketLimit: limit, welcomeMessage: storedWelcome, closeBehavior: option.close_behavior || "move", transcriptOnClose: false,
+        ticketLimit: limit, welcomeMessage: storedWelcome, closeBehavior: option.close_behavior || "move",
       });
     } catch (error) {
       await channel.delete("Evix ticket creation compensation").catch(() => null);
@@ -150,7 +158,7 @@ export class TicketService {
 
     const welcome = [pingRoles.length ? pingRoles.map((id) => "<@&" + id + ">").join(" ") : "", storedWelcome].filter(Boolean).join("\n");
     const view = buildTicketView(ticket, { ...option, welcome_message: welcome });
-    view.allowedMentions = { parse: [], roles: pingRoles, users: [interaction.user.id] };
+    view.allowedMentions = { parse: [], roles: unique(pingRoles), users: unique([interaction.user.id]) };
     try {
       const controlMessage = await channel.send(view);
       const withControl = await updateTicket(ticket.id, { control_message_id: controlMessage.id });
@@ -185,17 +193,27 @@ export class TicketService {
   async refreshControlMessage(interaction, ticket, { closed = false, welcomeOverride = null, closedBy = null, replace = false } = {}) {
     return queueTicketControlRefresh(ticket.id, async () => {
       const latest = (await getTicketByChannel(interaction.guildId, ticket.channel_id).catch(() => null)) || ticket;
+      if (latest.status === "deleted") return latest;
+
       const renderClosed = latest.status === "closed";
       const payload = renderClosed
         ? buildClosedTicketView({ ...latest, closed_by: closedBy || latest.closed_by })
         : buildTicketView(latest, { welcome_message: welcomeOverride ?? latest.welcome_message ?? "Thanks for opening a ticket. A member of the team will be with you shortly." });
       const channel = await interaction.guild.channels.fetch(latest.channel_id).catch(() => null);
       if (!channel?.isTextBased?.()) return latest;
+
       const oldMessageId = latest.control_message_id;
       const message = oldMessageId ? await channel.messages.fetch(oldMessageId).catch(() => null) : null;
+
       if (message && !replace) {
-        try { await message.edit(payload); return latest; } catch (error) { console.error("[evix-ticket-control-edit-error]", error); }
+        try {
+          await message.edit(payload);
+          return latest;
+        } catch (error) {
+          console.error("[evix-ticket-control-edit-error]", error);
+        }
       }
+
       try {
         const newMessage = await channel.send(payload);
         const next = await updateTicket(latest.id, { control_message_id: newMessage.id });
@@ -203,13 +221,34 @@ export class TicketService {
           await newMessage.delete("Evix ticket control state persistence failed").catch(() => null);
           throw new Error("Ticket control message state could not be persisted.");
         }
+
         if (oldMessageId && oldMessageId !== newMessage.id) {
-          await channel.messages.delete(oldMessageId, "Evix replaced ticket control view").catch((error) => {
+          try {
+            await channel.messages.delete(oldMessageId, "Evix replaced ticket control view");
+          } catch (error) {
             console.error("[evix-ticket-control-old-message-delete-error]", error);
-          });
+            if (message) {
+              await message.edit(payload).catch((fallbackError) => {
+                console.error("[evix-ticket-control-old-message-disable-error]", fallbackError);
+              });
+            }
+          }
         }
         return next;
-      } catch (error) { console.error("[evix-ticket-control-send-error]", error); return latest; }
+      } catch (error) {
+        console.error("[evix-ticket-control-send-error]", error);
+
+        // Never leave a stale public control view when the replacement path fails.
+        if (message) {
+          try {
+            await message.edit(payload);
+            return latest;
+          } catch (fallbackError) {
+            console.error("[evix-ticket-control-fallback-edit-error]", fallbackError);
+          }
+        }
+        return latest;
+      }
     });
   }
   async setParticipantPermissions(interaction, ticket, { view = true, send = true, rollbackTo = { view: true, send: true }, bestEffort = false } = {}) {
@@ -304,8 +343,8 @@ export class TicketService {
     ticket = await this.getFreshTicket(interaction, ticket);
     if (!this.canClose(interaction.member, ticket)) throw new Error("Only the ticket owner or configured staff can close this ticket.");
     if (ticket.status === "closed") {
+      await this.refreshControlMessage(interaction, ticket, { closed: true, closedBy: ticket.closed_by });
       if (reply) {
-        await this.refreshControlMessage(interaction, ticket, { closed: true, closedBy: ticket.closed_by });
         await respond(interaction, buildActionResult("Ticket Already Closed", "This ticket is already closed. Use the controls on the closed ticket message."));
       }
       return ticket;
@@ -319,7 +358,7 @@ export class TicketService {
       closed_by: closedBy || interaction.user.id,
       claimed_by: null,
       claimed_at: null,
-    }, { statuses: ["open", "locked"] });
+    }, { statuses: ["open"] });
     if (!next) throw new Error("This ticket was already closed by another action.");
 
     try {
@@ -343,7 +382,7 @@ export class TicketService {
       throw new Error("Ticket close failed: " + (error?.message || "permission update failed"));
     }
 
-    let currentCategoryId = next.current_category_id || next.category_id;
+    let currentCategoryId = interaction.channel.parentId || next.current_category_id || next.category_id;
     if (next.closed_category_id && next.close_behavior !== "stay") {
       try {
         const moved = await moveTicketChannel(interaction.channel, next.closed_category_id);
@@ -356,7 +395,9 @@ export class TicketService {
       }
     }
 
-    await interaction.channel.setName(statusName("closed", next.ticket_key)).catch(() => null);
+    void interaction.channel.setName(statusName("closed", next.ticket_key)).catch((error) => {
+      console.error("[evix-close-channel-rename-error]", error);
+    });
 
     if (reply) {
       await respond(interaction, buildActionResult(
@@ -407,16 +448,10 @@ export class TicketService {
       ticket.category_id || settings.ticket_category_id || settings.open_category_id,
       settings.backup_category_id,
     );
-    const previousCategoryId = ticket.current_category_id || interaction.channel.parentId || null;
+    const previousCategoryId = interaction.channel.parentId || ticket.current_category_id || ticket.category_id || null;
 
-    let target;
-    let permissions;
-    const [routingResult, permissionsResult] = await Promise.allSettled([
-      (async () => {
-        const result = await this.findCategoryForCreate(interaction.guild, candidates);
-        await moveTicketChannel(interaction.channel, result.category.id);
-        return result;
-      })(),
+    const [targetResult, permissionsResult] = await Promise.allSettled([
+      findTicketReopenCategory(interaction.guild, candidates, previousCategoryId),
       this.setParticipantPermissions(interaction, ticket, {
         view: true,
         send: true,
@@ -424,13 +459,7 @@ export class TicketService {
       }),
     ]);
 
-    if (routingResult.status === "rejected" || permissionsResult.status === "rejected") {
-      if (routingResult.status === "fulfilled") {
-        const routedCategoryId = routingResult.value.category.id;
-        if (String(routedCategoryId) !== String(previousCategoryId || "")) {
-          await moveTicketChannel(interaction.channel, previousCategoryId).catch(() => null);
-        }
-      }
+    if (targetResult.status === "rejected" || permissionsResult.status === "rejected") {
       if (permissionsResult.status === "fulfilled" && permissionsResult.value.changed.length) {
         await Promise.all(
           permissionsResult.value.changed.map((userId) =>
@@ -443,12 +472,30 @@ export class TicketService {
         );
       }
 
-      const failure = routingResult.status === "rejected" ? routingResult.reason : permissionsResult.reason;
-      const prefix = routingResult.status === "rejected" ? "Ticket reopen routing failed: " : "Ticket reopen failed: ";
+      const failure = targetResult.status === "rejected" ? targetResult.reason : permissionsResult.reason;
+      const prefix = targetResult.status === "rejected" ? "Ticket reopen routing failed: " : "Ticket reopen failed: ";
       throw new Error(prefix + (failure?.message || "ticket state could not be restored"));
     }
-    target = routingResult.value;
-    permissions = permissionsResult.value;
+
+    const target = targetResult.value;
+    const permissions = permissionsResult.value;
+
+    try {
+      await moveTicketChannel(interaction.channel, target.category.id);
+    } catch (error) {
+      if (permissions.changed.length) {
+        await Promise.all(
+          permissions.changed.map((userId) =>
+            interaction.channel.permissionOverwrites.edit(userId, {
+              ViewChannel: false,
+              SendMessages: false,
+              ReadMessageHistory: false,
+            }).catch(() => null),
+          ),
+        );
+      }
+      throw new Error("Ticket reopen routing failed: " + (error?.message || "ticket category unavailable"));
+    }
 
     const next = await updateTicket(
       ticket.id,
@@ -457,6 +504,8 @@ export class TicketService {
         reopened_at: new Date(),
         closed_at: null,
         closed_by: null,
+        claimed_by: null,
+        claimed_at: null,
         current_category_id: target.category.id,
       },
       { statuses: ["closed"] },
@@ -496,6 +545,7 @@ export class TicketService {
   async rename(interaction, ticket, name) {
     ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
+    if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
     const safe = sanitizeChannelName(name);
     if (!safe) throw new Error("The ticket name cannot be empty.");
     const finalName = statusName(ticket.status, safe);
@@ -527,7 +577,9 @@ export class TicketService {
   }
 
   async addRole(interaction, ticket, roleId) {
+    ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
+    if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
     const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
     if (!role) throw new Error("Role was not found in this server.");
     if (role.id === interaction.guild.id) throw new Error("The @everyone role cannot be added to a ticket.");
@@ -542,6 +594,7 @@ export class TicketService {
   async removeMember(interaction, ticket, userId) {
     ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
+    if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
     if (userId === ticket.owner_id) throw new Error("The ticket owner cannot be removed.");
     const members = await listTicketMembers(ticket.id);
     if (!members.includes(String(userId))) throw new Error("That user is not an added member of this ticket.");
@@ -565,7 +618,9 @@ export class TicketService {
   }
 
   async info(interaction, ticket) {
+    ticket = await this.getFreshTicket(interaction, ticket);
     if (!this.canClose(interaction.member, ticket)) throw new Error("Only the ticket owner or configured staff can view this ticket.");
+    if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
     const members = await listTicketMembers(ticket.id);
     await respond(interaction, buildInfoView(ticket, members));
   }
@@ -581,15 +636,28 @@ export class TicketService {
     ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
     if (ticket.status === "deleted") return respond(interaction, buildActionResult("Ticket Deleted", "This ticket is already deleted."));
-    if (ticket.status !== "closed") ticket = await this.close(interaction, ticket, { reply: false, closedBy: interaction.user.id, backgroundSideEffects: false });
+
+    const previousStatus = ticket.status;
     transitionTicket(ticket.status, "delete");
-    const deleted = await updateTicket(ticket.id, { status: "deleted", deleted_at: new Date() }, { statuses: ["closed"] });
-    if (!deleted) throw new Error("This ticket was changed by another action. Please try again.");
-    try { await interaction.channel.delete("Evix ticket deleted"); }
-    catch (error) {
-      await updateTicket(ticket.id, { status: "closed", deleted_at: null }, { statuses: ["deleted"] }).catch(() => null);
+
+    const deleted = await updateTicket(
+      ticket.id,
+      { status: "deleted", deleted_at: new Date() },
+      { statuses: ["open", "closed"] },
+    );
+    if (!deleted) throw new Error("This ticket was changed by another action.");
+
+    try {
+      await interaction.channel.delete("Evix ticket deleted");
+    } catch (error) {
+      await updateTicket(
+        ticket.id,
+        { status: previousStatus, deleted_at: null },
+        { statuses: ["deleted"] },
+      ).catch(() => null);
       throw new Error("Ticket deletion failed: " + (error?.message || "channel deletion failed"));
     }
+
     void addTicketEvent(ticket.id, "TICKET_DELETED", interaction.user.id)
       .catch((error) => console.error("[evix-ticket-delete-event-error]", error));
     void writeTicketLog(interaction.guild, deleted, "TICKET_DELETED", interaction.user.id)
@@ -599,7 +667,10 @@ export class TicketService {
   async sendTranscript(interaction, ticket) {
     ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
-    const transcript = await buildTranscript(interaction.channel, ticket);
+    if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
+    const channel = await interaction.guild.channels.fetch(ticket.channel_id).catch(() => null);
+    if (!channel?.isTextBased?.()) throw new Error("The ticket channel is no longer available.");
+    const transcript = await buildTranscript(channel, ticket);
     await respond(interaction, { ...buildActionResult("Transcript Ready", "Transcript generated for `" + ticket.ticket_key + "`."), files: [transcriptAttachment(transcript.buffer, transcript.fileName)], flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral });
     void addTicketEvent(ticket.id, "TRANSCRIPT_CREATED", interaction.user.id, {
       messages: transcript.messageCount,

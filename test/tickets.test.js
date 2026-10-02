@@ -148,3 +148,83 @@ test("stale close action on an already-closed ticket repairs the public control 
   service.refreshControlMessage = originalRefresh;
   service.getFreshTicket = originalFreshTicket;
 });
+
+
+test("ticket info rejects a deleted ticket after refreshing state", async () => {
+  const originalFresh = service.getFreshTicket;
+  service.getFreshTicket = async () => ({ id: 50, owner_id: "owner", status: "deleted", staff_roles: [] });
+
+  const interaction = {
+    guildId: "guild",
+    user: { id: "owner" },
+    member: member("owner"),
+  };
+
+  await assert.rejects(
+    () => service.info(interaction, { id: 50 }),
+    /deleted/,
+  );
+
+  service.getFreshTicket = originalFresh;
+});
+
+test("ticket role management rejects a deleted ticket after refreshing state", async () => {
+  const originalFresh = service.getFreshTicket;
+  service.getFreshTicket = async () => ({ id: 51, owner_id: "owner", status: "deleted", staff_roles: [] });
+
+  const interaction = {
+    guildId: "guild",
+    user: { id: "staff" },
+    member: member("staff", { manageChannels: true }),
+  };
+
+  await assert.rejects(
+    () => service.addRole(interaction, { id: 51 }, "role"),
+    /deleted/,
+  );
+
+  service.getFreshTicket = originalFresh;
+});
+
+
+
+test("control refresh falls back to editing the existing message when replacement send fails", async () => {
+  const edited = [];
+  const message = {
+    async edit(payload) {
+      edited.push(payload);
+    },
+  };
+  const channel = {
+    isTextBased: () => true,
+    messages: {
+      fetch: async () => message,
+    },
+    send: async () => {
+      throw new Error("simulated send failure");
+    },
+  };
+  const interaction = {
+    guildId: "guild",
+    guild: { channels: { fetch: async () => channel } },
+  };
+  const ticket = {
+    id: 52,
+    channel_id: "channel",
+    control_message_id: "control",
+    ticket_key: "EVX-000052",
+    owner_id: "owner",
+    type_label: "Support",
+    status: "closed",
+    closed_by: "staff",
+    staff_roles: [],
+  };
+
+  await service.refreshControlMessage(interaction, ticket, { replace: true });
+
+  assert.equal(edited.length, 1);
+  const rendered = JSON.stringify(edited[0].components.map((component) => component.toJSON()));
+  assert.match(rendered, /Get Transcript/);
+  assert.match(rendered, /Reopen/);
+  assert.match(rendered, /Delete Ticket/);
+});
