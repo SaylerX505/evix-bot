@@ -113,7 +113,6 @@ export async function initDatabase(databaseUrl) {
       control_message_id TEXT,
       welcome_message TEXT NOT NULL DEFAULT 'Thanks for opening a ticket. A member of the team will be with you shortly.',
       close_behavior TEXT NOT NULL DEFAULT 'move',
-      transcript_on_close BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       closed_at TIMESTAMPTZ,
       reopened_at TIMESTAMPTZ,
