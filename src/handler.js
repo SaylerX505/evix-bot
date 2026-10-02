@@ -230,7 +230,7 @@ export async function handleInteraction(interaction, { service, ui }) {
             const normalized = normalizeError(error);
             logInteractionError(interaction, normalized, error);
             await interaction.followUp({
-              ...buildErrorResult(normalized),
+              ...buildV2ErrorResult(normalized),
               flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
             }).catch(() => null);
           });
