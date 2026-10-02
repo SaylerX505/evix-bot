@@ -664,6 +664,25 @@ export class TicketService {
       .catch((error) => console.error("[evix-ticket-delete-log-error]", error));
   }
 
+  async handleChannelDelete(channel) {
+    if (!channel?.guildId || !channel?.id) return false;
+    const ticket = await getTicketByChannel(channel.guildId, channel.id).catch(() => null);
+    if (!ticket || ticket.status === "deleted") return false;
+
+    const deleted = await updateTicket(
+      ticket.id,
+      { status: "deleted", deleted_at: new Date() },
+      { statuses: ["open", "closed"] },
+    );
+    if (!deleted) return false;
+
+    void addTicketEvent(ticket.id, "TICKET_DELETED", null, { reason: "channel_deleted_externally" })
+      .catch((error) => console.error("[evix-ticket-external-delete-event-error]", error));
+    void writeTicketLog(channel.guild, deleted, "TICKET_DELETED", null, { reason: "channel_deleted_externally" })
+      .catch((error) => console.error("[evix-ticket-external-delete-log-error]", error));
+    return true;
+  }
+
   async sendTranscript(interaction, ticket) {
     ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
