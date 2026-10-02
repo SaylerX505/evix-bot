@@ -1,12 +1,5 @@
-import { unique } from "../utils.js";
 import { query, withTransaction } from "./connection.js";
-import { MemoryCache, getCached } from "./cache.js";
-
-const TICKET_CHANNEL_HINT_CACHE = new MemoryCache({
-  name: "ticket-channel-hints",
-  maxEntries: 2_048,
-  ttlMs: 10_000,
-});
+import { unique } from "../utils.js";
 
 const ticketActionLocks = new Map();
 
@@ -24,38 +17,12 @@ export async function withTicketActionLock(ticketId, callback) {
   }
 }
 
-function channelKey(guildId, channelId) {
-  return String(guildId) + ":" + String(channelId);
-}
-
-function rememberTicket(ticket) {
-  if (!ticket?.guild_id || !ticket?.channel_id) return;
-
-  TICKET_CHANNEL_HINT_CACHE.deleteWhere((value, key) => (
-    key !== channelKey(ticket.guild_id, ticket.channel_id)
-    && String(value?.id) === String(ticket.id)
-  ));
-
-  TICKET_CHANNEL_HINT_CACHE.set(channelKey(ticket.guild_id, ticket.channel_id), ticket, 10_000);
-}
-
-export function getCachedTicketByChannel(guildId, channelId) {
-  return TICKET_CHANNEL_HINT_CACHE.get(channelKey(guildId, channelId)) ?? null;
-}
-
-export function clearTicketMemory() {
-  TICKET_CHANNEL_HINT_CACHE.clear();
-  ticketActionLocks.clear();
-}
-
 export async function getTicketByChannel(guildId, channelId) {
   const { rows } = await query(
     "SELECT * FROM tickets WHERE guild_id=$1 AND channel_id=$2",
     [guildId, channelId],
   );
-  const ticket = rows[0] ?? null;
-  if (ticket) rememberTicket(ticket);
-  return ticket;
+  return rows[0] ?? null;
 }
 
 export async function getOpenTicketForUser(guildId, ownerId, optionId) {
@@ -63,9 +30,7 @@ export async function getOpenTicketForUser(guildId, ownerId, optionId) {
     "SELECT * FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND option_id=$3 AND status='open' ORDER BY created_at DESC, id DESC LIMIT 1",
     [guildId, ownerId, optionId],
   );
-  const ticket = rows[0] ?? null;
-  if (ticket) rememberTicket(ticket);
-  return ticket;
+  return rows[0] ?? null;
 }
 
 export async function allocateTicketId() {
@@ -134,7 +99,6 @@ export async function createTicket(data) {
     return rows[0];
   });
 
-  if (ticket) rememberTicket(ticket);
   return ticket;
 }
 
@@ -175,9 +139,7 @@ export async function updateTicket(ticketId, patch, conditions = {}) {
     "UPDATE tickets SET " + assignments + " WHERE " + where.join(" AND ") + " RETURNING *",
     [ticketId, ...values],
   );
-  const ticket = rows[0] ?? null;
-  if (ticket) rememberTicket(ticket);
-  return ticket;
+  return rows[0] ?? null;
 }
 
 export async function getTicketById(guildId, ticketId) {
@@ -185,7 +147,5 @@ export async function getTicketById(guildId, ticketId) {
     "SELECT * FROM tickets WHERE guild_id=$1 AND id=$2",
     [guildId, ticketId],
   );
-  const ticket = rows[0] ?? null;
-  if (ticket) rememberTicket(ticket);
-  return ticket;
+  return rows[0] ?? null;
 }
