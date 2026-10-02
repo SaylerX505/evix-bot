@@ -490,16 +490,8 @@ export class TicketService {
       ));
     }
 
-    // The public control message must become the closed-ticket view immediately.
-    // Do this before transcript generation, which can be much slower.
-    if (backgroundSideEffects) {
-      await this.refreshControlMessage(
-        interaction,
-        next,
-        { closed: true, closedBy: closedBy || interaction.user.id, replace: true, fallbackToKnownState: true },
-      );
-    }
-
+    // The control message was already switched to the closed view above.
+    // Do not render/replace it a second time; that only adds Discord and DB work.
     const finishSideEffects = async () => {
       await addTicketEvent(next.id, "TICKET_CLOSED", interaction.user.id, {
         duration: formatDuration(ticket.created_at),
