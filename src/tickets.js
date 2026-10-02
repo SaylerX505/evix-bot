@@ -1,5 +1,5 @@
 import { ChannelType, MessageFlags, PermissionFlagsBits } from "discord.js";
-import { addTicketEvent, addTicketMember, countOpenTickets, createTicket, getGuildSettings, getOpenTicketForUser, getTicketByChannel, getTicketById, listTicketMembers, removeTicketMember, updateTicket, withTicketActionLock } from "./db.js";
+import { addTicketEvent, addTicketMember, createTicket, getGuildSettings, getOpenTicketForUser, getTicketByChannel, getTicketById, listTicketMembers, removeTicketMember, updateTicket, withTicketActionLock } from "./db.js";
 import { writeTicketLog } from "./logs.js";
 import { buildActionResult, buildClaimResult, buildClosedTicketView, buildDeleteConfirmation, buildInfoView, buildTicketView, buildCloseConfirmation } from "./ui.js";
 import { buildTranscript, transcriptAttachment } from "./transcript.js";
@@ -42,6 +42,12 @@ function isMissingDiscordChannelError(error) {
   return String(error?.code || error?.rawError?.code || "") === "10003";
 }
 
+function assertTicketChannel(interaction, ticket) {
+  if (interaction?.channelId && String(ticket?.channel_id) !== String(interaction.channelId)) {
+    throw new Error("This ticket is not available in the current channel.");
+  }
+}
+
 function statusName(status, ticketKey) { return status === "open" ? "ticket-" + ticketKey : status + "-" + ticketKey; }
 
 export class TicketService {
@@ -64,6 +70,7 @@ export class TicketService {
   async getFreshTicket(interaction, ticket) {
     const latest = await getTicketById(interaction.guildId, ticket.id);
     if (!latest) throw new Error("This ticket no longer exists.");
+    assertTicketChannel(interaction, latest);
     return latest;
   }
 
@@ -100,12 +107,7 @@ export class TicketService {
     const categoryIds = categoryCandidates(primaryCategory, settings.backup_category_id);
     if (!primaryCategory) throw new Error("Configure the main Tickets category with /ticket setup before opening tickets.");
 
-    if (!option.allow_multiple) {
-      const existing = await getOpenTicketForUser(interaction.guildId, interaction.user.id, option.id);
-      if (existing) return respond(interaction, ephemeral("You already have an open " + option.label + " ticket: <#" + existing.channel_id + ">"));
-    }
     const limit = Number(settings.default_ticket_limit ?? 1);
-    if (await countOpenTickets(interaction.guildId, interaction.user.id) >= limit) throw new Error("You have reached the open ticket limit (" + limit + ").");
 
     const optionFields = validateModalFields(option.modal_fields ?? []);
     const formText = Object.entries(formValues).filter(([, value]) => String(value ?? "").trim()).map(([fieldId, value]) => {
@@ -207,11 +209,11 @@ export class TicketService {
     return ticket;
   }
 
-  async refreshControlMessage(interaction, ticket, { closed = false, welcomeOverride = null, closedBy = null, replace = false, fallbackToKnownState = false, requireSuccess = false } = {}) {
+  async refreshControlMessage(interaction, ticket, { closed = false, welcomeOverride = null, closedBy = null, replace = false, fallbackToKnownState = false, requireSuccess = false, ticketIsFresh = false } = {}) {
     return queueTicketControlRefresh(ticket.id, async () => {
       let latest;
       try {
-        latest = await this.getFreshTicket(interaction, ticket);
+        latest = ticketIsFresh ? ticket : await this.getFreshTicket(interaction, ticket);
       } catch (error) {
         if (!fallbackToKnownState) throw error;
         console.error("[evix-ticket-control-fresh-read-fallback]", error);
@@ -223,7 +225,9 @@ export class TicketService {
       const payload = renderClosed
         ? buildClosedTicketView({ ...latest, closed_by: closedBy || latest.closed_by })
         : buildTicketView(latest, { welcome_message: welcomeOverride ?? latest.welcome_message ?? "Thanks for opening a ticket. A member of the team will be with you shortly." });
-      const channel = await interaction.guild.channels.fetch(latest.channel_id).catch(() => null);
+      const channel = interaction.channel?.id && String(interaction.channel.id) === String(latest.channel_id)
+        ? interaction.channel
+        : await interaction.guild.channels.fetch(latest.channel_id).catch(() => null);
       if (!channel?.isTextBased?.()) {
         if (requireSuccess) throw new Error("The ticket channel is no longer available for control refresh.");
         return latest;
@@ -283,7 +287,7 @@ export class TicketService {
     const memberIds = unique([ticket.owner_id, ...(await listTicketMembers(ticket.id))]);
     const results = await Promise.all(memberIds.map(async (userId) => {
       try {
-        const member = await interaction.guild.members.fetch(userId).catch(() => null);
+        const member = interaction.guild.members.cache.get(userId) ?? await interaction.guild.members.fetch(userId).catch(() => null);
         const keepStaffVisible = !view && this.canManageTicket(member, ticket);
         await interaction.channel.permissionOverwrites.edit(userId, {
           ViewChannel: view || keepStaffVisible,
@@ -335,7 +339,7 @@ export class TicketService {
     await respond(interaction, buildClaimResult(next));
     void addTicketEvent(ticket.id, "TICKET_CLAIMED", interaction.user.id)
       .catch((error) => console.error("[evix-ticket-claim-event-error]", error));
-    void this.refreshControlMessage(interaction, next, { fallbackToKnownState: true })
+    void this.refreshControlMessage(interaction, next, { fallbackToKnownState: true, ticketIsFresh: true })
       .catch((error) => console.error("[evix-ticket-refresh-after-claim-error]", error));
     void writeTicketLog(interaction.guild, next, "TICKET_CLAIMED", interaction.user.id)
       .catch((error) => console.error("[evix-ticket-claim-log-error]", error));
@@ -351,7 +355,7 @@ export class TicketService {
     await respond(interaction, buildActionResult("Ticket Unclaimed", "The ticket is available for another staff member to claim."));
     void addTicketEvent(ticket.id, "TICKET_UNCLAIMED", interaction.user.id, { previous_claim: ticket.claimed_by })
       .catch((error) => console.error("[evix-ticket-unclaim-event-error]", error));
-    void this.refreshControlMessage(interaction, next, { fallbackToKnownState: true })
+    void this.refreshControlMessage(interaction, next, { fallbackToKnownState: true, ticketIsFresh: true })
       .catch((error) => console.error("[evix-ticket-refresh-after-unclaim-error]", error));
     void writeTicketLog(interaction.guild, next, "TICKET_UNCLAIMED", interaction.user.id)
       .catch((error) => console.error("[evix-ticket-unclaim-log-error]", error));
@@ -401,6 +405,7 @@ export class TicketService {
           replace: true,
           fallbackToKnownState: true,
           requireSuccess: true,
+          ticketIsFresh: true,
         },
       );
     } catch (error) {
@@ -806,7 +811,9 @@ export class TicketService {
     ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
     if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
-    const channel = await interaction.guild.channels.fetch(ticket.channel_id).catch(() => null);
+    const channel = interaction.channel?.id && String(interaction.channel.id) === String(ticket.channel_id)
+      ? interaction.channel
+      : await interaction.guild.channels.fetch(ticket.channel_id).catch(() => null);
     if (!channel?.isTextBased?.()) throw new Error("The ticket channel is no longer available.");
 
     await respond(
