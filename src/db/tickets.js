@@ -78,6 +78,11 @@ export async function allocateTicketId() {
 }
 
 export async function createTicket(data) {
+  const explicitId = data.id == null ? null : Number(data.id);
+  if (explicitId !== null && (!Number.isSafeInteger(explicitId) || explicitId <= 0)) {
+    throw new Error("Ticket ID must be a positive integer.");
+  }
+
   const ticket = await withTransaction(async (client) => {
     const lockKey = "ticket-limit:" + data.guildId + ":" + data.ownerId;
     await client.query(
@@ -98,10 +103,11 @@ export async function createTicket(data) {
     }
 
     const { rows } = await client.query(
+      "WITH next_id AS (SELECT COALESCE($1::bigint, nextval(pg_get_serial_sequence('tickets', 'id'))) AS id) " +
       "INSERT INTO tickets (id,guild_id,panel_id,option_id,ticket_key,channel_id,owner_id,type_label,status,category_id,current_category_id,closed_category_id,staff_roles,ping_roles,dedupe_key,ticket_log_channel_id,moderation_log_channel_id,transcript_log_channel_id,ticket_logs_enabled,moderation_logs_enabled,transcript_logs_enabled,control_message_id,welcome_message,close_behavior) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'open',$9,$9,$10,$11::jsonb,$12::jsonb,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) RETURNING *",
+      "SELECT id,$2,$3,$4,'EVX-' || LPAD(id::text,6,'0'),$5,$6,$7,'open',$8,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21 FROM next_id RETURNING *",
       [
-        data.id ?? null,
+        explicitId,
         data.guildId,
         data.panelId,
         data.optionId,
