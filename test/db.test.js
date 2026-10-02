@@ -3,6 +3,42 @@ import assert from "node:assert/strict";
 import pg from "pg";
 import { addPanelOption, closeDatabase, createPanel, initDatabase, updatePanel, updatePanelOption, updateTicket, withTicketActionLock } from "../src/db.js";
 
+test("database patch builders ignore undefined values but preserve explicit nulls", async () => {
+  const queries = [];
+  const originalQuery = pg.Pool.prototype.query;
+  const originalEnd = pg.Pool.prototype.end;
+
+  pg.Pool.prototype.query = async function(text, params) {
+    queries.push({ text, params });
+    if (text.startsWith("UPDATE")) return { rows: [{ id: 1 }] };
+    return { rows: [] };
+  };
+  pg.Pool.prototype.end = async function() {};
+
+  try {
+    await initDatabase("postgres://evix:test@localhost/evix");
+    queries.length = 0;
+
+    await updatePanel(1, { title: undefined, image_url: null });
+    assert.match(queries[0].text, /image_url=\$2/);
+    assert.deepEqual(queries[0].params, [1, null]);
+
+    queries.length = 0;
+    await updatePanelOption(2, { label: undefined, description: null });
+    assert.match(queries[0].text, /description=\$2/);
+    assert.deepEqual(queries[0].params, [2, null]);
+
+    queries.length = 0;
+    await updateTicket(3, { claimed_by: undefined, closed_by: null });
+    assert.match(queries[0].text, /closed_by=\$2/);
+    assert.deepEqual(queries[0].params, [3, null]);
+  } finally {
+    pg.Pool.prototype.query = originalQuery;
+    pg.Pool.prototype.end = originalEnd;
+    await closeDatabase();
+  }
+});
+
 test("database update builders emit valid PostgreSQL placeholders", async () => {
   const queries = [];
   const originalQuery = pg.Pool.prototype.query;
