@@ -52,9 +52,17 @@ export class TicketService {
   }
 
   async getTicket(interaction, ticketId = null) {
-    const ticket = await getTicketByChannel(interaction.guildId, interaction.channelId);
+    let ticket = await getTicketByChannel(interaction.guildId, interaction.channelId);
+    if (!ticket && ticketId !== null) {
+      const candidate = await getTicketById(interaction.guildId, ticketId);
+      if (candidate && String(candidate.channel_id) === String(interaction.channelId)) {
+        ticket = candidate;
+      }
+    }
     if (!ticket) throw new Error("This channel is not an Evix ticket.");
-    if (ticketId !== null && String(ticket.id) !== String(ticketId)) throw new Error("This ticket is not available in the current channel.");
+    if (ticketId !== null && String(ticket.id) !== String(ticketId)) {
+      throw new Error("This ticket is not available in the current channel.");
+    }
     return ticket;
   }
 
@@ -328,8 +336,8 @@ export class TicketService {
     ticket = await this.getFreshTicket(interaction, ticket);
     if (!this.canClose(interaction.member, ticket)) throw new Error("Only the ticket owner or configured staff can close this ticket.");
     if (ticket.status === "closed") {
+      await this.refreshControlMessage(interaction, ticket, { closed: true, closedBy: ticket.closed_by });
       if (reply) {
-        await this.refreshControlMessage(interaction, ticket, { closed: true, closedBy: ticket.closed_by });
         await respond(interaction, buildActionResult("Ticket Already Closed", "This ticket is already closed. Use the controls on the closed ticket message."));
       }
       return ticket;
