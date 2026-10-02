@@ -119,6 +119,7 @@ test("ticket event listing uses a deterministic tie-breaker", async () => {
   const calls = [];
   const originalQuery = pg.Pool.prototype.query;
   const originalEnd = pg.Pool.prototype.end;
+  const originalConnect = pg.Pool.prototype.connect;
 
   pg.Pool.prototype.query = async function(text, params) {
     calls.push({ text, params });
