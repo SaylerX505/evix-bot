@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PermissionFlagsBits } from "discord.js";
-import { TicketService } from "../src/tickets.js";
+import { assertTicketChannel, TicketService } from "../src/tickets.js";
 
 const service = new TicketService({});
 
@@ -37,6 +37,20 @@ test("ticket channel renames are serialized per ticket", async () => {
   releaseFirst();
   await Promise.all([first, second]);
   assert.deepEqual(events, ["first-start", "first-end", "second"]);
+});
+
+test("ticket channel guard blocks cross-channel control actions", () => {
+  assert.throws(
+    () => assertTicketChannel(
+      { channelId: "different-channel" },
+      { channel_id: "ticket-channel" },
+    ),
+    /not available in the current channel/,
+  );
+  assert.doesNotThrow(() => assertTicketChannel(
+    { channelId: "ticket-channel" },
+    { channel_id: "ticket-channel" },
+  ));
 });
 
 test("ticket management accepts configured staff or Manage Channels", () => {
