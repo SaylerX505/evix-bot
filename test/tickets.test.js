@@ -101,7 +101,6 @@ test("post-mutation control refresh may use only the explicitly trusted state on
     status: "closed",
     closed_by: "staff",
     staff_roles: [],
-    created_at: "2026-10-01T00:00:00.000Z",
   };
   const interaction = {
     guildId: "guild",
@@ -444,7 +443,6 @@ test("transcript gives immediate progress feedback and sends the same file to th
 });
 
 test("delete treats an already-missing Discord channel as successful", async () => {
-  const originalEvent = service;
   const channel = {
     delete: async () => { throw { code: "10003", message: "Unknown Channel" }; },
   };
@@ -465,9 +463,7 @@ test("delete treats an already-missing Discord channel as successful", async () 
         "closed",
       ),
     );
-  } finally {
-    void originalEvent;
-  }
+  });
 });
 
 test("ticket role management rejects a deleted ticket after refreshing state", async () => {
