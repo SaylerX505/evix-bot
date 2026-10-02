@@ -86,11 +86,11 @@ test("PostgreSQL migration and workload smoke test", { skip: !databaseUrl }, asy
     assert.equal(settings.transcript_log_channel_id, "legacy-transcript-log");
 
     const migratedKeys = await pool.query(
-      "SELECT ticket_key FROM tickets WHERE guild_id=$1 ORDER BY channel_id",
+      "SELECT ticket_key FROM tickets WHERE guild_id=$1 ORDER BY id",
       [guildId],
     );
-    assert.equal(migratedKeys.rows[0].ticket_key, "EVX-777777");
-    assert.match(migratedKeys.rows[1].ticket_key, /^EVX-[0-9]{6,}$/);
+    assert.match(migratedKeys.rows[0].ticket_key, /^EVX-[0-9]{6,}$/);
+    assert.equal(migratedKeys.rows[1].ticket_key, "EVX-777777");
 
     await initDatabase(databaseUrl);
     const rerunMigrations = await pool.query("SELECT version FROM schema_migrations ORDER BY version");
