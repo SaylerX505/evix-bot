@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MemoryCache, singleFlight } from "../src/db/cache.js";
+import { MemoryCache, getCached, singleFlight } from "../src/db/cache.js";
 
 test("memory cache expires entries and bounds its size without timers", async () => {
   let now = 1_000;
