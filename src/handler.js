@@ -243,20 +243,15 @@ export async function handleInteraction(interaction, { service, ui }) {
         });
       }
 
-      const ticket = await service.getTicket(interaction, ticketId);
-      const ownerAllowed = ticket.owner_id === interaction.user.id && ["close", "info"].includes(action);
-      if (!service.canManageTicket(interaction.member, ticket) && !ownerAllowed) throw new Error("You are not authorized to use this ticket control.");
-
-      if (action === "close") return await service.requestClose(interaction, ticket);
-      if (action === "delete") return await service.requestDelete(interaction, ticket);
-      if (action === "info") return await service.info(interaction, ticket);
-
-      const mutate = (callback) => service.withTicketActionLock(ticket.id, callback);
+      const mutate = (callback) => service.withTicketActionLock(ticketId, callback);
       switch (action) {
-        case "claim": return await mutate(() => service.claim(interaction, ticket));
-        case "unclaim": return await mutate(() => service.unclaim(interaction, ticket));
-        case "reopen": return await mutate(() => service.reopen(interaction, ticket));
-        case "transcript": return await mutate(() => service.sendTranscript(interaction, ticket));
+        case "close": return await service.requestClose(interaction, { id: ticketId });
+        case "delete": return await service.requestDelete(interaction, { id: ticketId });
+        case "info": return await service.info(interaction, { id: ticketId });
+        case "claim": return await mutate(() => service.claim(interaction, { id: ticketId }));
+        case "unclaim": return await mutate(() => service.unclaim(interaction, { id: ticketId }));
+        case "reopen": return await mutate(() => service.reopen(interaction, { id: ticketId }));
+        case "transcript": return await mutate(() => service.sendTranscript(interaction, { id: ticketId }));
         default: throw new Error("Unsupported ticket control.");
       }
     }
