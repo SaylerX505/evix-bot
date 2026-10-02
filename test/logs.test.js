@@ -80,6 +80,18 @@ test("non-lifecycle ticket events are not written to audit logs", async () => {
   assert.equal(guild.sent.length, 0);
 });
 
+test("transcript audit log includes the generated transcript attachment", async () => {
+  const guild = makeGuild();
+  const fakeFile = { name: "evx-000008-transcript.html" };
+
+  assert.equal(
+    await writeTicketLog(guild, ticket, "TRANSCRIPT_CREATED", "user", { messages: 8 }, [fakeFile]),
+    true,
+  );
+
+  assert.deepEqual(guild.sent[0].files, [fakeFile]);
+});
+
 test("transcript logging skips a missing dedicated channel and uses ticket log fallback", async () => {
   const sent = [];
   const fallback = {
