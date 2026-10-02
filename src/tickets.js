@@ -11,6 +11,7 @@ const BOT_PERMISSIONS = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Se
 
 const ticketControlRefreshes = new Map();
 const ticketChannelNameChanges = new Map();
+const FRESH_TICKET = Symbol("evix-fresh-ticket");
 
 function queueTicketChannelName(ticketId, callback) {
   const key = String(ticketId);
@@ -68,9 +69,15 @@ export class TicketService {
   canClose(member, ticket) { return member?.id === ticket.owner_id || this.canManageTicket(member, ticket); }
 
   async getFreshTicket(interaction, ticket) {
+    if (ticket?.[FRESH_TICKET]) {
+      assertTicketChannel(interaction, ticket);
+      return ticket;
+    }
+
     const latest = await getTicketById(interaction.guildId, ticket.id);
     if (!latest) throw new Error("This ticket no longer exists.");
     assertTicketChannel(interaction, latest);
+    Object.defineProperty(latest, FRESH_TICKET, { value: true });
     return latest;
   }
 
@@ -86,6 +93,7 @@ export class TicketService {
     if (ticketId !== null && String(ticket.id) !== String(ticketId)) {
       throw new Error("This ticket is not available in the current channel.");
     }
+    Object.defineProperty(ticket, FRESH_TICKET, { value: true });
     return ticket;
   }
 
