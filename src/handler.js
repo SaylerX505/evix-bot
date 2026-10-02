@@ -196,7 +196,7 @@ export async function handleInteraction(interaction, { service, ui }) {
           );
           await interaction.followUp({
             ...buildActionResult("Ticket Closed", "This ticket has been closed by <@" + interaction.user.id + ">."),
-            flags: MessageFlags.Ephemeral,
+            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
           }).catch(() => null);
           return;
         }
