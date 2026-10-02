@@ -650,7 +650,10 @@ export class TicketService {
     if (!this.canClose(interaction.member, ticket)) throw new Error("Only the ticket owner or configured staff can view this ticket.");
     if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
     const members = await listTicketMembers(ticket.id);
-    await respond(interaction, buildInfoView(ticket, members));
+    const displayTicket = interaction.channel?.parentId
+      ? { ...ticket, current_category_id: interaction.channel.parentId }
+      : ticket;
+    await respond(interaction, buildInfoView(displayTicket, members));
   }
 
   async requestDelete(interaction, ticket) {
