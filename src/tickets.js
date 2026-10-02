@@ -432,14 +432,15 @@ export class TicketService {
       ));
     }
 
-    // The public control message must become the closed-ticket view immediately.
-    // Do this before transcript generation, which can be much slower.
+    // The control replacement is deliberately detached from the interaction response.
+    // The DB state is already committed, so the user-facing confirmation must not wait for
+    // extra Discord fetch/send/delete calls or another database write.
     if (backgroundSideEffects) {
-      await this.refreshControlMessage(
+      void this.refreshControlMessage(
         interaction,
         next,
         { closed: true, closedBy: closedBy || interaction.user.id, replace: true, fallbackToKnownState: true, ticketIsFresh: true },
-      );
+      ).catch((error) => console.error("[evix-ticket-refresh-after-close-error]", error));
     }
 
     const finishSideEffects = async () => {
