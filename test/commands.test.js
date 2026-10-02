@@ -1,3 +1,10 @@
+test("ticket setup can preserve optional categories or clear them explicitly", () => {
+  const ticket = commands.find((command) => command.name === "ticket").toJSON();
+  const setup = ticket.options.find((option) => option.name === "setup");
+  assert.equal(setup.options.find((option) => option.name === "clear_backup_category").type, 5);
+  assert.equal(setup.options.find((option) => option.name === "clear_closed_category").type, 5);
+});
+
 test("ticket setup can clear optional categories and panel options no longer expose transcript-on-close", () => {
   const ticket = commands.find((command) => command.name === "ticket").toJSON();
   const setup = ticket.options.find((option) => option.name === "setup");
