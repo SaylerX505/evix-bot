@@ -54,7 +54,7 @@ test("keep-open removes only the close confirmation", async () => {
   assert.deepEqual(service.calls, []);
 });
 
-test("confirm close removes the confirmation and executes close", async () => {
+test("confirm close shows progress and completes the close operation", async () => {
   const interaction = makeButton("evix:confirm:42:close");
   const service = serviceFor({ id: 42, owner_id: "owner", status: "open", staff_roles: [] });
   await handleInteraction(interaction, { service, ui: {} });
@@ -62,7 +62,7 @@ test("confirm close removes the confirmation and executes close", async () => {
   assert.deepEqual(service.calls, ["close"]);
 });
 
-test("confirm close surfaces a failure after removing the confirmation", async () => {
+test("confirm close surfaces a failure in the same progress response", async () => {
   const interaction = makeButton("evix:confirm:42:close");
   const service = serviceFor({ id: 42, owner_id: "owner", status: "open", staff_roles: [] });
   service.close = async () => { throw new Error("Close failed"); };
@@ -223,12 +223,16 @@ test("delete confirmation shows progress before channel deletion starts", async 
   });
   service.canManageTicket = () => true;
   const events = [];
-  service.delete = async () => {
-    events.push("delete-start");
-    let resolveDeletion;
-    const completion = new Promise((resolve) => { resolveDeletion = resolve; });
-    return { started: true, start: () => completion, resolveDeletion };
-  };
+  let resolveDeletion;
+  service.delete = async () => ({
+    started: true,
+    start: () => {
+      events.push("delete-start");
+      return new Promise((resolve) => {
+        resolveDeletion = resolve;
+      });
+    },
+  });
   interaction.editReply = async (payload) => {
     events.push("editReply:" + (payload?.components ? JSON.stringify(payload.components.map((component) => component.toJSON())) : "other"));
   };
@@ -238,6 +242,9 @@ test("delete confirmation shows progress before channel deletion starts", async 
 
   assert.equal(events[0].startsWith("editReply:"), true);
   assert.equal(events.includes("delete-start"), true);
+
+  resolveDeletion();
+  await running;
 });
 
 test("ticket confirmation progress keeps Components V2 and Ephemeral flags", async () => {
