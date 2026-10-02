@@ -271,7 +271,6 @@ export async function handlePanelCommand(interaction, ui) {
     const pingRole = interaction.options.getRole("ping_roles");
     const closeBehavior = interaction.options.getString("close_behavior");
     const allowMultiple = interaction.options.getBoolean("allow_multiple");
-    const transcriptOnClose = interaction.options.getBoolean("transcript_on_close");
     const staffRoles = staffRole ? [staffRole.id] : [];
     const pingRoles = pingRole ? [pingRole.id] : [];
     await validateConfiguredRoles(interaction.guild, [...staffRoles, ...pingRoles]);
@@ -288,7 +287,6 @@ export async function handlePanelCommand(interaction, ui) {
       pingRoles,
       closeBehavior: closeBehavior || "move",
       allowMultiple: allowMultiple === true,
-      transcriptOnClose: transcriptOnClose !== false,
     });
 
     const refreshed = await getPanel(interaction.guildId, panel.id);
@@ -336,7 +334,6 @@ export async function handlePanelCommand(interaction, ui) {
     const clearPingRoles = interaction.options.getBoolean("clear_ping_roles") === true;
     const closeBehavior = interaction.options.getString("close_behavior");
     const allowMultiple = interaction.options.getBoolean("allow_multiple");
-    const transcriptOnClose = interaction.options.getBoolean("transcript_on_close");
     const action = interaction.options.getString("action");
     const name = interaction.options.getString("name");
 
@@ -354,7 +351,6 @@ export async function handlePanelCommand(interaction, ui) {
     else if (pingRole) patch.ping_roles = [pingRole.id];
     if (closeBehavior !== null) patch.close_behavior = closeBehavior;
     if (allowMultiple !== null) patch.allow_multiple = allowMultiple;
-    if (transcriptOnClose !== null) patch.transcript_on_close = transcriptOnClose;
     if (action !== null) patch.action = action;
 
     const updated = Object.keys(patch).length ? await updatePanelOption(optionId, patch) : target;
