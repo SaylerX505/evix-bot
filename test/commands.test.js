@@ -1,3 +1,16 @@
+test("ticket setup can clear optional categories and panel options no longer expose transcript-on-close", () => {
+  const ticket = commands.find((command) => command.name === "ticket").toJSON();
+  const setup = ticket.options.find((option) => option.name === "setup");
+  assert.equal(setup.options.find((option) => option.name === "backup_category").required, false);
+  assert.equal(setup.options.find((option) => option.name === "closed_category").required, false);
+
+  const panel = commands.find((command) => command.name === "panel").toJSON();
+  for (const name of ["option-add", "option-edit"]) {
+    const sub = panel.options.find((option) => option.name === name);
+    assert.equal(sub.options.some((option) => option.name === "transcript_on_close"), false);
+  }
+});
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ComponentType } from "discord.js";
