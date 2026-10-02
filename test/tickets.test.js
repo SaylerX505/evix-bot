@@ -14,6 +14,27 @@ function member(id, { manageChannels = false, roles = [] } = {}) {
   };
 }
 
+test("ticket channel renames are serialized per ticket", async () => {
+  const events = [];
+  let releaseFirst;
+  const firstBlocked = new Promise((resolve) => { releaseFirst = resolve; });
+
+  const first = service.queueChannelName(90, async () => {
+    events.push("first-start");
+    await firstBlocked;
+    events.push("first-end");
+  });
+  const second = service.queueChannelName(90, async () => {
+    events.push("second");
+  });
+
+  await Promise.resolve();
+  assert.deepEqual(events, ["first-start"]);
+  releaseFirst();
+  await Promise.all([first, second]);
+  assert.deepEqual(events, ["first-start", "first-end", "second"]);
+});
+
 test("ticket management accepts configured staff or Manage Channels", () => {
   const ticket = { staff_roles: ["staff-role"] };
   assert.equal(service.canManageTicket(member("u1", { roles: ["staff-role"] }), ticket), true);
