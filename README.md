@@ -78,7 +78,7 @@ Panel options support:
 
 `NOTHING` is useful for a reset/no-op dropdown entry. `CREATE_TICKET` creates a private channel with the option's configured category, staff roles, ping roles, naming template, welcome message, and close behavior. Existing stored modal fields remain supported for backward compatibility.
 
-The database is PostgreSQL and startup schema creation is additive/idempotent. Existing ticket data is never dropped by startup.
+The database is PostgreSQL and startup schema creation is idempotent. Ticket rows are preserved across migrations; obsolete legacy state/setting columns are reconciled and removed without deleting ticket records.
 
 Transcript generation is manual-only. The transcript audit event uses the dedicated transcript log channel when configured, otherwise it falls back to the ticket lifecycle log when ticket logs are enabled.
 
