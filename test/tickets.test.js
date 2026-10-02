@@ -314,7 +314,7 @@ test("stale close action on an already-closed ticket repairs the public control 
   await service.requestClose(interaction, ticket);
 
   assert.equal(refreshed.length, 1);
-  assert.deepEqual(refreshed[0].options, { closed: true, closedBy: "staff" });
+  assert.deepEqual(refreshed[0].options, { closed: true, closedBy: "staff", useProvidedState: true });
   assert.equal(interaction.replied, true);
   service.refreshControlMessage = originalRefresh;
   service.getFreshTicket = originalFreshTicket;
@@ -388,7 +388,19 @@ test("reopen rolls back participant access when the DB transition fails", async 
 
   try {
     await assert.rejects(
-      () => service.reopen(interaction, { id: 53 }),
+      () => service.reopen(interaction, {
+        id: 53,
+        channel_id: "channel",
+        ticket_key: "EVX-000053",
+        owner_id: "owner",
+        type_label: "Support",
+        status: "closed",
+        category_id: "category-1",
+        current_category_id: "category-1",
+        closed_category_id: "category-closed",
+        staff_roles: [],
+        claimed_by: null,
+      }),
       /Database has not been initialized/,
     );
     assert.deepEqual(rollbacks, ["owner-permission-rollback:owner"]);
@@ -410,7 +422,7 @@ test("ticket info rejects a deleted ticket after refreshing state", async () => 
   };
 
   await assert.rejects(
-    () => service.info(interaction, { id: 50 }),
+    () => service.info(interaction, { id: 50, owner_id: "owner", status: "deleted", staff_roles: [] }),
     /deleted/,
   );
 
@@ -519,7 +531,7 @@ test("ticket role management rejects a deleted ticket after refreshing state", a
   };
 
   await assert.rejects(
-    () => service.addRole(interaction, { id: 51 }, "role"),
+    () => service.addRole(interaction, { id: 51, owner_id: "owner", status: "deleted", staff_roles: [] }, "role"),
     /deleted/,
   );
 
