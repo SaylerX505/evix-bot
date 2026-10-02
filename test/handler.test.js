@@ -188,6 +188,58 @@ test("delete confirmation acknowledges deletion before the channel deletion prom
   await running;
 });
 
+test("close confirmation shows progress before the close operation starts", async () => {
+  const interaction = makeButton("evix:confirm:42:close");
+  const service = delayedService({
+    id: 42,
+    owner_id: "owner",
+    status: "open",
+    staff_roles: [],
+  });
+  service.canManageTicket = () => true;
+  const events = [];
+  service.close = async () => {
+    events.push("close-start");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    events.push("close-end");
+  };
+  interaction.editReply = async (payload) => {
+    events.push("editReply:" + (payload?.components ? JSON.stringify(payload.components.map((component) => component.toJSON())) : "other"));
+  };
+
+  await handleInteraction(interaction, { service, ui: {} });
+
+  assert.equal(events[0].startsWith("editReply:"), true);
+  assert.equal(events.includes("close-start"), true);
+});
+
+test("delete confirmation shows progress before channel deletion starts", async () => {
+  const interaction = makeButton("evix:confirm:42:delete");
+  const service = delayedService({
+    id: 42,
+    owner_id: "owner",
+    status: "closed",
+    staff_roles: [],
+  });
+  service.canManageTicket = () => true;
+  const events = [];
+  service.delete = async () => {
+    events.push("delete-start");
+    let resolveDeletion;
+    const completion = new Promise((resolve) => { resolveDeletion = resolve; });
+    return { started: true, completion, resolveDeletion };
+  };
+  interaction.editReply = async (payload) => {
+    events.push("editReply:" + (payload?.components ? JSON.stringify(payload.components.map((component) => component.toJSON())) : "other"));
+  };
+
+  const running = handleInteraction(interaction, { service, ui: {} });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(events[0].startsWith("editReply:"), true);
+  assert.equal(events.includes("delete-start"), true);
+});
+
 test("ticket confirmation success followups keep Components V2 and Ephemeral flags", async () => {
   for (const action of ["close", "delete"]) {
     const interaction = makeButton("evix:confirm:42:" + action);
