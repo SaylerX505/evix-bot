@@ -67,7 +67,7 @@ test("confirm close surfaces a failure after removing the confirmation", async (
   const service = serviceFor({ id: 42, owner_id: "owner", status: "open", staff_roles: [] });
   service.close = async () => { throw new Error("Close failed"); };
   await handleInteraction(interaction, { service, ui: {} });
-  assert.deepEqual(interaction.calls, ["deferUpdate", "deleteReply", "deleteReply", "followUp"]);
+  assert.deepEqual(interaction.calls, ["deferUpdate", "deleteReply", "followUp"]);
 });
 
 
