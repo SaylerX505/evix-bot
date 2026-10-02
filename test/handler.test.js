@@ -183,6 +183,38 @@ test("ticket confirmation success followups keep Components V2 and Ephemeral fla
   }
 });
 
+test("confirm close acknowledges before close side effects finish", async () => {
+  const interaction = makeButton("evix:confirm:42:close");
+  const service = serviceFor({
+    id: 42,
+    owner_id: "owner",
+    status: "open",
+    staff_roles: [],
+  });
+  service.canClose = () => true;
+
+  let resolveCompletion;
+  const completion = new Promise((resolve) => { resolveCompletion = resolve; });
+  let closeFinished = false;
+  service.close = async () => {
+    return {
+      started: true,
+      completion: completion.then(() => { closeFinished = true; }),
+    };
+  };
+
+  const running = handleInteraction(interaction, { service, ui: {} });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.deepEqual(interaction.calls, ["deferUpdate", "deleteReply", "followUp"]);
+  assert.match(JSON.stringify(interaction.followUpPayload.components.map((component) => component.toJSON())), /Closing Ticket/);
+  assert.equal(closeFinished, false);
+
+  resolveCompletion();
+  await running;
+  assert.equal(closeFinished, true);
+});
+
 test("confirmation buttons acknowledge before a slow ticket lookup", async () => {
   for (const action of ["close", "keep-open", "delete", "cancel"]) {
     const interaction = makeButton("evix:confirm:42:" + action);
