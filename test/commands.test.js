@@ -99,3 +99,10 @@ test("panel option edit uses role selectors and removes unused fields", () => {
   assert.equal(edit.options.find((option) => option.name === "clear_ping_roles").type, 5);
   assert.equal(edit.options.some((option) => ["form", "name_template", "welcome"].includes(option.name)), false);
 });
+test("ticket log configuration exposes explicit fallback-clearing controls", () => {
+  const ticket = commands.find((command) => command.name === "ticket").toJSON();
+  const logs = ticket.options.find((option) => option.name === "logs");
+  assert.equal(logs.options.find((option) => option.name === "clear_transcript_channel").type, 5);
+  assert.equal(logs.options.find((option) => option.name === "clear_moderation_channel").type, 5);
+});
+
