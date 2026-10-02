@@ -392,9 +392,11 @@ const MIGRATIONS = [
           ON ticket_events (ticket_id, created_at, id)
       `);
 
+      await client.query("DROP INDEX CONCURRENTLY IF EXISTS tickets_open_owner_option_idx");
       await client.query("DROP INDEX CONCURRENTLY IF EXISTS tickets_owner_idx");
       await client.query("DROP INDEX CONCURRENTLY IF EXISTS tickets_guild_status_idx");
       await client.query("DROP INDEX CONCURRENTLY IF EXISTS panels_guild_idx");
+      await client.query("DROP INDEX CONCURRENTLY IF EXISTS panel_options_panel_idx");
       await client.query("DROP INDEX CONCURRENTLY IF EXISTS ticket_members_ticket_idx");
       await client.query("DROP INDEX CONCURRENTLY IF EXISTS ticket_events_ticket_idx");
     },
