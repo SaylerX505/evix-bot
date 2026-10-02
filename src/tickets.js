@@ -729,15 +729,40 @@ export class TicketService {
     ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
     if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
-    const channel = await interaction.guild.channels.fetch(ticket.channel_id).catch(() => null);
+
+    const channel = interaction.channel?.id && String(interaction.channel.id) === String(ticket.channel_id)
+      ? interaction.channel
+      : await interaction.guild.channels.fetch(ticket.channel_id).catch(() => null);
     if (!channel?.isTextBased?.()) throw new Error("The ticket channel is no longer available.");
+
+    await respond(interaction, buildActionResult(
+      "Generating Transcript",
+      "Evix is collecting the ticket history and preparing the transcript file...",
+    ));
+
     const transcript = await buildTranscript(channel, ticket);
-    await respond(interaction, { ...buildActionResult("Transcript Ready", "Transcript generated for `" + ticket.ticket_key + "`."), files: [transcriptAttachment(transcript.buffer, transcript.fileName)], flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral });
+
+    await respond(interaction, {
+      ...buildActionResult(
+        "Transcript Ready",
+        "Transcript generated for \`" + ticket.ticket_key + "\` (" + transcript.messageCount + " messages).",
+      ),
+      files: [transcriptAttachment(transcript.buffer, transcript.fileName)],
+      flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+    });
+
     void addTicketEvent(ticket.id, "TRANSCRIPT_CREATED", interaction.user.id, {
       messages: transcript.messageCount,
       channel: interaction.channel.id,
     }).catch((error) => console.error("[evix-ticket-transcript-event-error]", error));
-    void writeTicketLog(interaction.guild, ticket, "TRANSCRIPT_CREATED", interaction.user.id, { messages: transcript.messageCount })
-      .catch((error) => console.error("[evix-ticket-transcript-log-error]", error));
+
+    void writeTicketLog(
+      interaction.guild,
+      ticket,
+      "TRANSCRIPT_CREATED",
+      interaction.user.id,
+      { messages: transcript.messageCount },
+      [transcriptAttachment(transcript.buffer, transcript.fileName)],
+    ).catch((error) => console.error("[evix-ticket-transcript-log-error]", error));
   }
 }
