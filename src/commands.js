@@ -186,7 +186,6 @@ export async function handleTicketCommand(interaction, service, ui) {
       patch.ticket_logs_enabled = false;
     } else if (ticketChannel) {
       patch.ticket_log_channel_id = ticketChannel.id;
-      patch.log_channel_id = ticketChannel.id;
       patch.ticket_logs_enabled = true;
     }
     if (disableModeration) {
@@ -202,11 +201,9 @@ export async function handleTicketCommand(interaction, service, ui) {
       patch.transcript_logs_enabled = false;
     } else if (clearTranscript) {
       patch.transcript_log_channel_id = null;
-      patch.transcript_channel_id = null;
       patch.transcript_logs_enabled = true;
     } else if (transcriptChannel) {
       patch.transcript_log_channel_id = transcriptChannel.id;
-      patch.transcript_channel_id = transcriptChannel.id;
       patch.transcript_logs_enabled = true;
     }
 
