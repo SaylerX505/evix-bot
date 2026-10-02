@@ -151,7 +151,7 @@ test("createPanel inserts its default option with matching SQL columns and value
     const panel = await createPanel({ guildId: "guild", name: "Support", withDefaultOption: true });
     const optionInsert = calls.find((entry) => entry.text.startsWith("INSERT INTO ticket_panel_options"));
     assert.ok(optionInsert);
-    assert.match(optionInsert.text, /'move',FALSE,2,'\[\]'::jsonb\) RETURNING \*/);
+    assert.match(optionInsert.text, /'move',FALSE,2,'\[\]'::jsonb\)$/);
     assert.equal(optionInsert.params.length, 1);
     assert.equal(optionInsert.params[0], 9);
     assert.deepEqual(panel.options, [{ id: 10, panel_id: 9, label: "Open Ticket", action: "CREATE_TICKET" }]);
