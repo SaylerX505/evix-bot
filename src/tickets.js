@@ -504,14 +504,11 @@ export class TicketService {
 
     if (targetResult.status === "rejected" || permissionsResult.status === "rejected") {
       if (permissionsResult.status === "fulfilled" && permissionsResult.value.changed.length) {
-        await Promise.all(
-          permissionsResult.value.changed.map((userId) =>
-            interaction.channel.permissionOverwrites.edit(userId, {
-              ViewChannel: false,
-              SendMessages: false,
-              ReadMessageHistory: false,
-            }).catch(() => null),
-          ),
+        await this.restoreParticipantPermissions(
+          interaction,
+          ticket,
+          permissionsResult.value.changed,
+          { view: false, send: false },
         );
       }
 
