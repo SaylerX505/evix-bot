@@ -382,7 +382,7 @@ export class TicketService {
       throw new Error("Ticket close failed: " + (error?.message || "permission update failed"));
     }
 
-    let currentCategoryId = next.current_category_id || next.category_id;
+    let currentCategoryId = interaction.channel.parentId || next.current_category_id || next.category_id;
     if (next.closed_category_id && next.close_behavior !== "stay") {
       try {
         const moved = await moveTicketChannel(interaction.channel, next.closed_category_id);
@@ -450,14 +450,8 @@ export class TicketService {
     );
     const previousCategoryId = interaction.channel.parentId || ticket.current_category_id || ticket.category_id || null;
 
-    let target;
-    let permissions;
-    const [routingResult, permissionsResult] = await Promise.allSettled([
-      (async () => {
-        const result = await findTicketReopenCategory(interaction.guild, candidates, previousCategoryId);
-        await moveTicketChannel(interaction.channel, result.category.id);
-        return result;
-      })(),
+    const [targetResult, permissionsResult] = await Promise.allSettled([
+      findTicketReopenCategory(interaction.guild, candidates, previousCategoryId),
       this.setParticipantPermissions(interaction, ticket, {
         view: true,
         send: true,
@@ -465,13 +459,7 @@ export class TicketService {
       }),
     ]);
 
-    if (routingResult.status === "rejected" || permissionsResult.status === "rejected") {
-      if (routingResult.status === "fulfilled") {
-        const routedCategoryId = routingResult.value.category.id;
-        if (String(routedCategoryId) !== String(previousCategoryId || "")) {
-          await moveTicketChannel(interaction.channel, previousCategoryId).catch(() => null);
-        }
-      }
+    if (targetResult.status === "rejected" || permissionsResult.status === "rejected") {
       if (permissionsResult.status === "fulfilled" && permissionsResult.value.changed.length) {
         await Promise.all(
           permissionsResult.value.changed.map((userId) =>
@@ -484,12 +472,30 @@ export class TicketService {
         );
       }
 
-      const failure = routingResult.status === "rejected" ? routingResult.reason : permissionsResult.reason;
-      const prefix = routingResult.status === "rejected" ? "Ticket reopen routing failed: " : "Ticket reopen failed: ";
+      const failure = targetResult.status === "rejected" ? targetResult.reason : permissionsResult.reason;
+      const prefix = targetResult.status === "rejected" ? "Ticket reopen routing failed: " : "Ticket reopen failed: ";
       throw new Error(prefix + (failure?.message || "ticket state could not be restored"));
     }
-    target = routingResult.value;
-    permissions = permissionsResult.value;
+
+    const target = targetResult.value;
+    const permissions = permissionsResult.value;
+
+    try {
+      await moveTicketChannel(interaction.channel, target.category.id);
+    } catch (error) {
+      if (permissions.changed.length) {
+        await Promise.all(
+          permissions.changed.map((userId) =>
+            interaction.channel.permissionOverwrites.edit(userId, {
+              ViewChannel: false,
+              SendMessages: false,
+              ReadMessageHistory: false,
+            }).catch(() => null),
+          ),
+        );
+      }
+      throw new Error("Ticket reopen routing failed: " + (error?.message || "ticket category unavailable"));
+    }
 
     const next = await updateTicket(
       ticket.id,
