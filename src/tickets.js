@@ -11,6 +11,7 @@ const BOT_PERMISSIONS = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Se
 
 const ticketControlRefreshes = new Map();
 const ticketChannelNameChanges = new Map();
+const ticketTranscriptJobs = new Map();
 
 function queueTicketChannelName(ticketId, callback) {
   const key = String(ticketId);
@@ -19,6 +20,18 @@ function queueTicketChannelName(ticketId, callback) {
   ticketChannelNameChanges.set(key, next);
   return next.finally(() => {
     if (ticketChannelNameChanges.get(key) === next) ticketChannelNameChanges.delete(key);
+  });
+}
+
+function queueTicketTranscript(ticketId, callback) {
+  const key = String(ticketId);
+  const active = ticketTranscriptJobs.get(key);
+  if (active) return active;
+
+  const job = Promise.resolve().then(callback);
+  ticketTranscriptJobs.set(key, job);
+  return job.finally(() => {
+    if (ticketTranscriptJobs.get(key) === job) ticketTranscriptJobs.delete(key);
   });
 }
 
@@ -238,16 +251,14 @@ export class TicketService {
         }
 
         if (oldMessageId && oldMessageId !== newMessage.id) {
-          try {
-            await channel.messages.delete(oldMessageId, "Evix replaced ticket control view");
-          } catch (error) {
+          void channel.messages.delete(oldMessageId, "Evix replaced ticket control view").catch(async (error) => {
             console.error("[evix-ticket-control-old-message-delete-error]", error);
             if (message) {
               await message.edit(payload).catch((fallbackError) => {
                 console.error("[evix-ticket-control-old-message-disable-error]", fallbackError);
               });
             }
-          }
+          });
         }
         return next;
       } catch (error) {
@@ -778,7 +789,10 @@ export class TicketService {
     if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
     const channel = await interaction.guild.channels.fetch(ticket.channel_id).catch(() => null);
     if (!channel?.isTextBased?.()) throw new Error("The ticket channel is no longer available.");
-    const transcript = await buildTranscript(channel, ticket);
+    const transcript = await queueTicketTranscript(
+      ticket.id,
+      () => buildTranscript(channel, ticket),
+    );
     await respond(interaction, { ...buildActionResult("Transcript Ready", "Transcript generated for `" + ticket.ticket_key + "`."), files: [transcriptAttachment(transcript.buffer, transcript.fileName)], flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral });
     void addTicketEvent(ticket.id, "TRANSCRIPT_CREATED", interaction.user.id, {
       messages: transcript.messageCount,
