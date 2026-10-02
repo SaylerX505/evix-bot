@@ -51,7 +51,7 @@ function footer(guild) {
   return section;
 }
 
-export async function writeTicketLog(guild, ticket, eventType, actorId, details = {}) {
+export async function writeTicketLog(guild, ticket, eventType, actorId, details = {}, files = []) {
   try {
     const label = LOG_EVENT_LABELS.get(eventType);
     if (!label) return false;
@@ -91,6 +91,7 @@ export async function writeTicketLog(guild, ticket, eventType, actorId, details 
       try {
         await channel.send({
           components: [container],
+          ...(files?.length ? { files } : {}),
           flags: MessageFlags.IsComponentsV2,
           allowedMentions: { parse: [] },
         });
