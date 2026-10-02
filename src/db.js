@@ -393,7 +393,7 @@ export async function createPanel(data) {
     if (data.withDefaultOption !== false) {
       await client.query(
         "INSERT INTO ticket_panel_options (panel_id,position,component_kind,label,description,emoji,action,category_id,closed_category_id,staff_roles,ping_roles,log_channel_id,moderation_log_channel_id,transcript_channel_id,welcome_message,ticket_name_template,close_behavior,allow_multiple,button_style,modal_fields) " +
-        "VALUES ($1,0,'dropdown','Open Ticket',NULL,NULL,'CREATE_TICKET',NULL,NULL,'[]'::jsonb,'[]'::jsonb,NULL,NULL,NULL,'','ticket-{number}','move',TRUE,FALSE,2,'[]'::jsonb)",
+        "VALUES ($1,0,'dropdown','Open Ticket',NULL,NULL,'CREATE_TICKET',NULL,NULL,'[]'::jsonb,'[]'::jsonb,NULL,NULL,NULL,'','ticket-{number}','move',FALSE,2,'[]'::jsonb)",
         [panel.id],
       );
     }
