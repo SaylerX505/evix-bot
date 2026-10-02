@@ -830,5 +830,4 @@ export class TicketService {
       [transcriptAttachment(transcript.buffer, transcript.fileName)],
     ).catch((error) => console.error("[evix-ticket-transcript-log-error]", error));
   }
-  }
 }
