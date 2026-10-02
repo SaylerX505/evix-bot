@@ -196,6 +196,16 @@ export async function handleInteraction(interaction, { service, ui }) {
         let deletion = null;
         let alreadyDeleted = false;
 
+        if (action === "close") {
+          await interaction.editReply(
+            buildActionResult("Closing Ticket", "The ticket is being closed now."),
+          );
+        } else {
+          await interaction.editReply(
+            buildActionResult("Deleting Ticket", "The ticket is being removed now."),
+          );
+        }
+
         await service.withTicketActionLock(ticketId, async () => {
           const ticket = await service.getTicket(interaction, ticketId);
           const canManage = service.canManageTicket(interaction.member, ticket);
@@ -205,19 +215,12 @@ export async function handleInteraction(interaction, { service, ui }) {
           }
 
           if (action === "close") {
-            await interaction.editReply(
-              buildActionResult("Closing Ticket", "The ticket is being closed now."),
-            );
             await service.close(interaction, ticket, { reply: false, closedBy: interaction.user.id });
             await interaction.editReply(
               buildActionResult("Ticket Closed", "This ticket has been closed by <@" + interaction.user.id + ">."),
             ).catch(() => null);
             return;
           }
-
-          await interaction.editReply(
-            buildActionResult("Deleting Ticket", "The ticket is being removed now."),
-          );
 
           deletion = await service.delete(interaction, ticket, { background: true });
           alreadyDeleted = deletion?.started === false;
