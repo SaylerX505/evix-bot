@@ -678,7 +678,7 @@ export class TicketService {
     ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
     if (ticket.status === "deleted") {
-      return { status: "deleted", completed: true };
+      return { ticket, completion: Promise.resolve() };
     }
 
     const previousStatus = ticket.status;
@@ -691,7 +691,7 @@ export class TicketService {
     );
     if (!deleted) throw new Error("This ticket was changed by another action.");
 
-    const removeChannel = async () => {
+    const completion = (async () => {
       try {
         await interaction.channel.delete("Evix ticket deleted");
       } catch (error) {
@@ -705,29 +705,16 @@ export class TicketService {
           ? new Error("Ticket deletion failed: " + (error?.message || "channel deletion failed"))
           : new Error("Ticket deletion failed and the ticket could not be restored automatically.");
         failure.cause = error;
-        try {
-          const normalized = normalizeError(failure);
-          await interaction.followUp({
-            ...buildErrorResult(normalized),
-            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
-          });
-        } catch (followUpError) {
-          console.error("[evix-ticket-delete-failure-followup-error]", followUpError);
-        }
         throw failure;
       }
 
-      void addTicketEvent(ticket.id, "TICKET_DELETED", interaction.user.id)
-        .catch((error) => console.error("[evix-ticket-delete-event-error]", error));
-      void writeTicketLog(interaction.guild, deleted, "TICKET_DELETED", interaction.user.id)
-        .catch((error) => console.error("[evix-ticket-delete-log-error]", error));
-    };
+      await Promise.allSettled([
+        addTicketEvent(ticket.id, "TICKET_DELETED", interaction.user.id),
+        writeTicketLog(interaction.guild, deleted, "TICKET_DELETED", interaction.user.id),
+      ]);
+    })();
 
-    void removeChannel().catch((error) => {
-      console.error("[evix-ticket-delete-background-error]", error);
-    });
-
-    return { ...deleted, completed: false };
+    return { ticket: deleted, completion };
   }
 
   async handleChannelDelete(channel) {
