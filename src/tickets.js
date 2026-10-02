@@ -38,6 +38,12 @@ async function respond(interaction, payload) {
 }
 function ephemeral(content) { return { content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } }; }
 function statusIsActive(status) { return status === "open"; }
+export function assertTicketChannel(interaction, ticket) {
+  if (interaction?.channelId && String(ticket?.channel_id) !== String(interaction.channelId)) {
+    throw new Error("This ticket is not available in the current channel.");
+  }
+}
+
 function statusName(status, ticketKey) { return status === "open" ? "ticket-" + ticketKey : status + "-" + ticketKey; }
 
 export class TicketService {
@@ -60,9 +66,7 @@ export class TicketService {
   async getFreshTicket(interaction, ticket) {
     const latest = await getTicketById(interaction.guildId, ticket.id);
     if (!latest) throw new Error("This ticket no longer exists.");
-    if (interaction?.channelId && String(latest.channel_id) !== String(interaction.channelId)) {
-      throw new Error("This ticket is not available in the current channel.");
-    }
+    assertTicketChannel(interaction, latest);
     return latest;
   }
 
