@@ -230,7 +230,7 @@ export async function handleTicketCommand(interaction, service, ui) {
 
   switch (sub) {
     case "info": return service.info(interaction, ticket);
-    case "transcript": return mutate(() => service.sendTranscript(interaction, ticket));
+    case "transcript": return service.sendTranscript(interaction, ticket);
     case "close": return service.requestClose(interaction, ticket);
     case "reopen": return mutate(() => service.reopen(interaction, ticket));
     case "claim": return mutate(() => service.claim(interaction, ticket));
