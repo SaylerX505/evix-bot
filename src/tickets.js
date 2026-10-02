@@ -356,11 +356,11 @@ export class TicketService {
     return respond(interaction, buildCloseConfirmation(ticket));
   }
 
-  async close(interaction, ticket, { reply = true, closedBy = null, backgroundSideEffects = true } = {}) {
+  async close(interaction, ticket, { reply = true, closedBy = null, background = false } = {}) {
     ticket = await this.getFreshTicket(interaction, ticket);
     if (!this.canClose(interaction.member, ticket)) throw new Error("Only the ticket owner or configured staff can close this ticket.");
     if (ticket.status === "closed") {
-      await this.refreshControlMessage(interaction, ticket, { closed: true, closedBy: ticket.closed_by });
+      await this.refreshControlMessage(interaction, ticket, { closed: true, closedBy: ticket.closed_by, fallbackToKnownState: true });
       if (reply) {
         await respond(interaction, buildActionResult("Ticket Already Closed", "This ticket is already closed. Use the controls on the closed ticket message."));
       }
@@ -369,7 +369,7 @@ export class TicketService {
     if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
     transitionTicket(ticket.status, "close");
 
-    let next = await updateTicket(ticket.id, {
+    const next = await updateTicket(ticket.id, {
       status: "closed",
       closed_at: new Date(),
       closed_by: closedBy || interaction.user.id,
@@ -378,81 +378,124 @@ export class TicketService {
     }, { statuses: ["open"] });
     if (!next) throw new Error("This ticket was already closed by another action.");
 
-    try {
-      await this.setParticipantPermissions(interaction, next, {
-        view: false,
-        send: false,
-        rollbackTo: { view: true, send: true },
-      });
-    } catch (error) {
-      await updateTicket(
-        ticket.id,
-        {
-          status: ticket.status,
-          closed_at: null,
-          closed_by: ticket.closed_by,
-          claimed_by: ticket.claimed_by,
-          claimed_at: ticket.claimed_at,
-        },
-        { statuses: ["closed"] },
-      ).catch(() => null);
-      throw new Error("Ticket close failed: " + (error?.message || "permission update failed"));
-    }
+    const finishClose = async () => {
+      let current = next;
 
-    let currentCategoryId = interaction.channel.parentId || next.current_category_id || next.category_id;
-    if (next.closed_category_id && next.close_behavior !== "stay") {
       try {
-        const moved = await moveTicketChannel(interaction.channel, next.closed_category_id);
-        if (moved) {
-          currentCategoryId = moved.id;
-          next = await updateTicket(next.id, { current_category_id: moved.id }, { statuses: ["closed"] }) ?? next;
-        }
+        await this.refreshControlMessage(
+          interaction,
+          current,
+          {
+            closed: true,
+            closedBy: closedBy || interaction.user.id,
+            replace: true,
+            fallbackToKnownState: true,
+            requireSuccess: true,
+            ticketIsFresh: true,
+          },
+        );
       } catch (error) {
-        console.error("[evix-close-category-error]", error);
+        await updateTicket(
+          ticket.id,
+          {
+            status: ticket.status,
+            closed_at: null,
+            closed_by: ticket.closed_by,
+            claimed_by: ticket.claimed_by,
+            claimed_at: ticket.claimed_at,
+          },
+          { statuses: ["closed"] },
+        ).catch(() => null);
+        await this.refreshControlMessage(
+          interaction,
+          ticket,
+          {
+            replace: true,
+            fallbackToKnownState: true,
+            ticketIsFresh: true,
+          },
+        ).catch((refreshError) => {
+          console.error("[evix-ticket-close-rollback-control-error]", refreshError);
+        });
+        throw new Error("Ticket close failed: " + (error?.message || "closed control update failed"));
       }
-    }
 
-    void this.queueChannelName(next.id, () => interaction.channel.setName(statusName("closed", next.ticket_key))).catch((error) => {
-      console.error("[evix-close-channel-rename-error]", error);
-    });
+      try {
+        await this.setParticipantPermissions(interaction, current, {
+          view: false,
+          send: false,
+          rollbackTo: { view: true, send: true },
+        });
+      } catch (error) {
+        const reopened = await updateTicket(
+          ticket.id,
+          {
+            status: ticket.status,
+            closed_at: null,
+            closed_by: ticket.closed_by,
+            claimed_by: ticket.claimed_by,
+            claimed_at: ticket.claimed_at,
+          },
+          { statuses: ["closed"] },
+        ).catch(() => null);
 
+        if (reopened) {
+          await this.refreshControlMessage(
+            interaction,
+            reopened,
+            {
+              replace: true,
+              fallbackToKnownState: true,
+              ticketIsFresh: true,
+            },
+          ).catch((refreshError) => {
+            console.error("[evix-ticket-close-rollback-control-error]", refreshError);
+          });
+        }
+
+        throw new Error("Ticket close failed: " + (error?.message || "permission update failed"));
+      }
+
+      let currentCategoryId = interaction.channel.parentId || current.current_category_id || current.category_id;
+      if (current.closed_category_id && current.close_behavior !== "stay") {
+        try {
+          const moved = await moveTicketChannel(interaction.channel, current.closed_category_id);
+          if (moved) {
+            currentCategoryId = moved.id;
+            current = await updateTicket(current.id, { current_category_id: moved.id }, { statuses: ["closed"] }) ?? current;
+          }
+        } catch (error) {
+          console.error("[evix-close-category-error]", error);
+        }
+      }
+
+      void this.queueChannelName(current.id, () => interaction.channel.setName(statusName("closed", current.ticket_key))).catch((error) => {
+        console.error("[evix-close-channel-rename-error]", error);
+      });
+
+      await addTicketEvent(current.id, "TICKET_CLOSED", interaction.user.id, {
+        duration: formatDuration(ticket.created_at),
+        category: currentCategoryId,
+      }).catch((error) => console.error("[evix-close-event-error]", error));
+      await writeTicketLog(interaction.guild, current, "TICKET_CLOSED", interaction.user.id, {
+        duration: formatDuration(ticket.created_at),
+        category: currentCategoryId,
+      }).catch((error) => console.error("[evix-close-log-error]", error));
+      return current;
+    };
+
+    if (background) return { started: true, ticket: next, completion: finishClose() };
+
+    const closed = await finishClose();
     if (reply) {
       await respond(interaction, buildActionResult(
         "Ticket Closed",
         "This ticket has been closed by <@" + (closedBy || interaction.user.id) + ">.",
       ));
     }
-
-    // The public control message must become the closed-ticket view immediately.
-    // Do this before transcript generation, which can be much slower.
-    if (backgroundSideEffects) {
-      await this.refreshControlMessage(
-        interaction,
-        next,
-        { closed: true, closedBy: closedBy || interaction.user.id, replace: true, fallbackToKnownState: true },
-      );
-    }
-
-    const finishSideEffects = async () => {
-      await addTicketEvent(next.id, "TICKET_CLOSED", interaction.user.id, {
-        duration: formatDuration(ticket.created_at),
-        category: currentCategoryId,
-      }).catch((error) => console.error("[evix-close-event-error]", error));
-      await writeTicketLog(interaction.guild, next, "TICKET_CLOSED", interaction.user.id, {
-        duration: formatDuration(ticket.created_at),
-        category: currentCategoryId,
-      }).catch((error) => console.error("[evix-close-log-error]", error));
-      return next;
-    };
-
-    if (backgroundSideEffects) {
-      void finishSideEffects().catch((error) => console.error("[evix-close-side-effects-error]", error));
-      return next;
-    }
-
-    return finishSideEffects();
+    return closed;
   }
-  
+
   async reopen(interaction, ticket) {
     ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
