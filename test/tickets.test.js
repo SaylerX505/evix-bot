@@ -17,18 +17,22 @@ function member(id, { manageChannels = false, roles = [] } = {}) {
 test("ticket channel renames are serialized per ticket", async () => {
   const events = [];
   let releaseFirst;
+  let signalFirstStarted;
   const firstBlocked = new Promise((resolve) => { releaseFirst = resolve; });
+  const firstStarted = new Promise((resolve) => { signalFirstStarted = resolve; });
 
   const first = service.queueChannelName(90, async () => {
     events.push("first-start");
+    signalFirstStarted();
     await firstBlocked;
     events.push("first-end");
   });
+
+  await firstStarted;
   const second = service.queueChannelName(90, async () => {
     events.push("second");
   });
 
-  await Promise.resolve();
   assert.deepEqual(events, ["first-start"]);
   releaseFirst();
   await Promise.all([first, second]);
