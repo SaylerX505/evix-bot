@@ -1,15 +1,11 @@
 export const TICKET_STATES = Object.freeze({
   OPEN: "open",
-  LOCKED: "locked",
   CLOSED: "closed",
   DELETED: "deleted",
 });
 
 const transitions = new Map([
   ["open:close", "closed"],
-  ["locked:close", "closed"],
-  ["open:lock", "locked"],
-  ["locked:unlock", "open"],
   ["closed:reopen", "open"],
 ]);
 
