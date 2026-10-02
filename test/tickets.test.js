@@ -404,6 +404,7 @@ test("transcript gives immediate progress feedback and sends the same file to th
     status: "closed",
     closed_by: "staff",
     staff_roles: [],
+    created_at: "2026-10-01T00:00:00.000Z",
     transcript_log_channel_id: "log",
     transcript_logs_enabled: true,
     ticket_logs_enabled: false,
