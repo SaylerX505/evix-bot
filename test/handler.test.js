@@ -26,7 +26,7 @@ function makeButton(customId) {
     deleteReply: async () => { calls.push("deleteReply"); },
     followUp: async (payload) => { interaction.followUpPayload = payload; calls.push("followUp"); },
     reply: async () => { interaction.replied = true; calls.push("reply"); },
-    editReply: async (payload) => { interaction.editReplyPayloads = [...(interaction.editReplyPayloads ?? []), payload]; calls.push("editReply"); },
+    editReply: async () => { calls.push("editReply"); },
     guild: {},
   };
   interaction.calls = calls;
@@ -54,7 +54,7 @@ test("keep-open removes only the close confirmation", async () => {
   assert.deepEqual(service.calls, []);
 });
 
-test("confirm close removes the confirmation and executes close", async () => {
+test("confirm close shows progress and completes the close operation", async () => {
   const interaction = makeButton("evix:confirm:42:close");
   const service = serviceFor({ id: 42, owner_id: "owner", status: "open", staff_roles: [] });
   await handleInteraction(interaction, { service, ui: {} });
@@ -62,7 +62,7 @@ test("confirm close removes the confirmation and executes close", async () => {
   assert.deepEqual(service.calls, ["close"]);
 });
 
-test("confirm close surfaces a failure after removing the confirmation", async () => {
+test("confirm close surfaces a failure in the same progress response", async () => {
   const interaction = makeButton("evix:confirm:42:close");
   const service = serviceFor({ id: 42, owner_id: "owner", status: "open", staff_roles: [] });
   service.close = async () => { throw new Error("Close failed"); };
@@ -132,7 +132,7 @@ test("delete control keeps its confirmation ephemeral and does not update the pu
   assert.deepEqual(service.calls, []);
 });
 
-test("concurrent delete confirmations are serialized instead of returning ticket busy", async () => {
+test("concurrent delete confirmations are serialized without duplicate deletion starts", async () => {
   const interactions = [
     makeButton("evix:confirm:42:delete"),
     makeButton("evix:confirm:42:delete"),
@@ -154,7 +154,7 @@ test("concurrent delete confirmations are serialized instead of returning ticket
     await new Promise((resolve) => setTimeout(resolve, 10));
     running -= 1;
     service.calls.push("delete");
-    return { started: true, completion: Promise.resolve() };
+    return { started: true, start: () => Promise.resolve() };
   };
 
   await Promise.all(interactions.map((interaction) => handleInteraction(interaction, { service, ui: {} })));
@@ -162,7 +162,7 @@ test("concurrent delete confirmations are serialized instead of returning ticket
   assert.deepEqual(service.calls, ["delete", "delete"]);
 });
 
-test("delete confirmation acknowledges deletion before the channel deletion promise finishes", async () => {
+test("delete confirmation shows progress before the channel deletion starts", async () => {
   const interaction = makeButton("evix:confirm:42:delete");
   const service = delayedService({
     id: 42,
@@ -172,65 +172,13 @@ test("delete confirmation acknowledges deletion before the channel deletion prom
   });
   service.canManageTicket = () => true;
 
-  let resolveDeletion;
-  const deletionFinished = new Promise((resolve) => { resolveDeletion = resolve; });
-  service.delete = async () => ({
-    started: true,
-    completion: deletionFinished,
-  });
-
-  const running = handleInteraction(interaction, { service, ui: {} });
-  await new Promise((resolve) => setTimeout(resolve, 30));
-  assert.deepEqual(interaction.calls, ["deferUpdate", "deleteReply", "followUp"]);
-  assert.match(JSON.stringify(interaction.followUpPayload.components.map((component) => component.toJSON())), /Deleting Ticket/);
-
-  resolveDeletion();
-  await running;
-});
-
-test("close confirmation shows progress before the close operation starts", async () => {
-  const interaction = makeButton("evix:confirm:42:close");
-  const service = delayedService({
-    id: 42,
-    owner_id: "owner",
-    status: "open",
-    staff_roles: [],
-  });
-  service.canManageTicket = () => true;
-  const events = [];
-  service.close = async () => {
-    events.push("close-start");
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    events.push("close-end");
-  };
-  interaction.editReply = async (payload) => {
-    events.push("editReply:" + (payload?.components ? JSON.stringify(payload.components.map((component) => component.toJSON())) : "other"));
-  };
-
-  await handleInteraction(interaction, { service, ui: {} });
-
-  assert.equal(events[0].startsWith("editReply:"), true);
-  assert.equal(events.includes("close-start"), true);
-});
-
-test("delete confirmation shows progress before channel deletion starts", async () => {
-  const interaction = makeButton("evix:confirm:42:delete");
-  const service = delayedService({
-    id: 42,
-    owner_id: "owner",
-    status: "closed",
-    staff_roles: [],
-  });
-  service.canManageTicket = () => true;
   const events = [];
   let resolveDeletion;
   service.delete = async () => ({
     started: true,
     start: () => {
       events.push("delete-start");
-      return new Promise((resolve) => {
-        resolveDeletion = resolve;
-      });
+      return new Promise((resolve) => { resolveDeletion = resolve; });
     },
   });
   interaction.editReply = async (payload) => {
@@ -241,7 +189,7 @@ test("delete confirmation shows progress before channel deletion starts", async 
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(events[0].startsWith("editReply:"), true);
-  assert.equal(events.includes("delete-start"), true);
+  assert.equal(events[1], "delete-start");
 
   resolveDeletion();
   await running;
