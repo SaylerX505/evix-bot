@@ -12,6 +12,7 @@ export class MemoryCache {
     this.name = name;
     this.entries = new Map();
     this.generations = new Map();
+    this.activeFlights = new Map();
     this.epoch = 0;
     this.now = () => Date.now();
   }
@@ -22,6 +23,7 @@ export class MemoryCache {
 
     if (record.expiresAt <= this.now()) {
       this.entries.delete(String(key));
+      this.compactGeneration(key);
       return undefined;
     }
 
@@ -54,6 +56,30 @@ export class MemoryCache {
     const normalizedKey = String(key);
     this.generations.set(normalizedKey, (this.generations.get(normalizedKey) ?? 0) + 1);
     this.entries.delete(normalizedKey);
+    this.compactGeneration(normalizedKey);
+  }
+
+  beginFlight(key) {
+    const normalizedKey = String(key);
+    this.activeFlights.set(normalizedKey, (this.activeFlights.get(normalizedKey) ?? 0) + 1);
+  }
+
+  endFlight(key) {
+    const normalizedKey = String(key);
+    const count = (this.activeFlights.get(normalizedKey) ?? 0) - 1;
+    if (count > 0) {
+      this.activeFlights.set(normalizedKey, count);
+      return;
+    }
+    this.activeFlights.delete(normalizedKey);
+    this.compactGeneration(normalizedKey);
+  }
+
+  compactGeneration(key) {
+    const normalizedKey = String(key);
+    if (!this.activeFlights.has(normalizedKey) && !this.entries.has(normalizedKey)) {
+      this.generations.delete(normalizedKey);
+    }
   }
 
   deleteWhere(predicate) {
@@ -90,6 +116,7 @@ export class MemoryCache {
     while (this.entries.size > this.maxEntries) {
       const oldestKey = this.entries.keys().next().value;
       this.entries.delete(oldestKey);
+      this.compactGeneration(oldestKey);
     }
   }
 }
@@ -114,7 +141,9 @@ export async function getCached(cache, key, loader) {
   if (hit !== undefined) return hit;
 
   const generation = cache.generation(key);
-  return singleFlight(cache.name + ":" + key + ":" + generation, async () => {
+  cache.beginFlight(key);
+
+  const flight = singleFlight(cache.name + ":" + key + ":" + generation, async () => {
     const secondHit = cache.get(key);
     if (secondHit !== undefined) return secondHit;
 
@@ -122,4 +151,6 @@ export async function getCached(cache, key, loader) {
     cache.setIfGeneration(key, value, generation);
     return structuredClone(value);
   });
+
+  return flight.finally(() => cache.endFlight(key));
 }
