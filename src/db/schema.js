@@ -281,7 +281,6 @@ const MIGRATIONS = [
 
         UPDATE tickets
         SET ticket_key = CASE
-              CASE
               WHEN ticket_key IS DISTINCT FROM ('EVX-' || LPAD(id::text, 6, '0'))
                 THEN 'EVX-' || LPAD(id::text, 6, '0')
               ELSE ticket_key
