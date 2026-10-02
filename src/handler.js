@@ -218,6 +218,7 @@ export async function handleInteraction(interaction, { service, ui }) {
           ticket.id,
           () => service.delete(interaction, ticket, { background: true }),
         );
+        if (!deletion?.started) return;
 
         await interaction.followUp({
           ...buildActionResult("Deleting Ticket", "The ticket has been marked for deletion. The channel is being removed now."),
