@@ -23,6 +23,10 @@ export async function initPool(databaseUrl) {
     ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
   });
 
+  nextPool.on("error", (error) => {
+    console.error("[evix-db-pool-error]", error);
+  });
+
   try {
     await nextPool.query("SELECT 1");
     pool = nextPool;
