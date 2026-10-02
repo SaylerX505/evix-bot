@@ -186,7 +186,7 @@ Failure cases explicitly covered:
 
 ## Scope exclusions
 
-Version 1.0.1 does not include:
+Version 1.0.3 does not include:
 - AI
 - web dashboard
 - external ticket CRM
@@ -200,11 +200,7 @@ Version 1.0.1 does not include:
 
 The production implementation is released as **1.0.2**.
 
-Implementation history should remain understandable and human-like. The preferred release shape is a focused implementation commit titled:
-
-**release: 1.0.1 — launch Evix ticket system**
-
-Tests/docs may be included in that release commit when they belong to the release.
+Implementation history should remain understandable and focused. Tests and documentation updates may be included with the corresponding implementation change.
 
 ## Success criteria
 
