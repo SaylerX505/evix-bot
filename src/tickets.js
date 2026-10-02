@@ -1,5 +1,5 @@
 import { ChannelType, MessageFlags, PermissionFlagsBits } from "discord.js";
-import { addTicketEvent, addTicketMember, allocateTicketId, createTicket, getCachedTicketByChannel, getGuildSettings, getOpenTicketForUser, getTicketByChannel, getTicketById, listTicketMembers, removeTicketMember, updateTicket, withTicketActionLock } from "./db.js";
+import { addTicketEvent, addTicketMember, allocateTicketId, createTicket, getGuildSettings, getOpenTicketForUser, getTicketByChannel, getTicketById, listTicketMembers, removeTicketMember, updateTicket, withTicketActionLock } from "./db.js";
 import { writeTicketLog } from "./logs.js";
 import { buildActionResult, buildClaimResult, buildClosedTicketView, buildDeleteConfirmation, buildInfoView, buildTicketView, buildCloseConfirmation } from "./ui.js";
 import { buildTranscript, transcriptAttachment } from "./transcript.js";
@@ -68,12 +68,7 @@ export class TicketService {
   }
 
   async getTicket(interaction, ticketId = null) {
-    let ticket = getCachedTicketByChannel(interaction.guildId, interaction.channelId);
-    if (ticket) {
-      ticket = await getTicketById(interaction.guildId, ticket.id);
-    } else {
-      ticket = await getTicketByChannel(interaction.guildId, interaction.channelId);
-    }
+    let ticket = await getTicketByChannel(interaction.guildId, interaction.channelId);
     if (!ticket && ticketId !== null) {
       const candidate = await getTicketById(interaction.guildId, ticketId);
       if (candidate && String(candidate.channel_id) === String(interaction.channelId)) {
