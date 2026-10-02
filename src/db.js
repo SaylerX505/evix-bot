@@ -668,7 +668,7 @@ export async function listTicketEvents(ticketId) {
 
 export async function countOpenTickets(guildId, ownerId) {
   const { rows } = await query(
-    "SELECT COUNT(*)::int AS count FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND status IN ('open','locked')",
+    "SELECT COUNT(*)::int AS count FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND status = 'open'",
     [guildId,ownerId],
   );
   return rows[0].count;
