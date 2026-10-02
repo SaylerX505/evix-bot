@@ -203,7 +203,7 @@ export class TicketService {
     return ticket;
   }
 
-  async refreshControlMessage(interaction, ticket, { closed = false, welcomeOverride = null, closedBy = null, replace = false, fallbackToKnownState = false } = {}) {
+  async refreshControlMessage(interaction, ticket, { closed = false, welcomeOverride = null, closedBy = null, replace = false, fallbackToKnownState = false, requireSuccess = false } = {}) {
     return queueTicketControlRefresh(ticket.id, async () => {
       let latest;
       try {
@@ -220,7 +220,10 @@ export class TicketService {
         ? buildClosedTicketView({ ...latest, closed_by: closedBy || latest.closed_by })
         : buildTicketView(latest, { welcome_message: welcomeOverride ?? latest.welcome_message ?? "Thanks for opening a ticket. A member of the team will be with you shortly." });
       const channel = await interaction.guild.channels.fetch(latest.channel_id).catch(() => null);
-      if (!channel?.isTextBased?.()) return latest;
+      if (!channel?.isTextBased?.()) {
+        if (requireSuccess) throw new Error("The ticket channel is no longer available for control refresh.");
+        return latest;
+      }
 
       const oldMessageId = latest.control_message_id;
       const message = oldMessageId ? await channel.messages.fetch(oldMessageId).catch(() => null) : null;
@@ -267,6 +270,7 @@ export class TicketService {
             console.error("[evix-ticket-control-fallback-edit-error]", fallbackError);
           }
         }
+        if (requireSuccess) throw error;
         return latest;
       }
     });
@@ -384,11 +388,17 @@ export class TicketService {
     if (!next) throw new Error("This ticket was already closed by another action.");
 
     try {
-      await this.setParticipantPermissions(interaction, next, {
-        view: false,
-        send: false,
-        rollbackTo: { view: true, send: true },
-      });
+      await this.refreshControlMessage(
+        interaction,
+        next,
+        {
+          closed: true,
+          closedBy: closedBy || interaction.user.id,
+          replace: true,
+          fallbackToKnownState: true,
+          requireSuccess: true,
+        },
+      );
     } catch (error) {
       await updateTicket(
         ticket.id,
@@ -401,6 +411,41 @@ export class TicketService {
         },
         { statuses: ["closed"] },
       ).catch(() => null);
+      throw new Error("Ticket close failed: " + (error?.message || "closed control update failed"));
+    }
+
+    try {
+      await this.setParticipantPermissions(interaction, next, {
+        view: false,
+        send: false,
+        rollbackTo: { view: true, send: true },
+      });
+    } catch (error) {
+      const reopened = await updateTicket(
+        ticket.id,
+        {
+          status: ticket.status,
+          closed_at: null,
+          closed_by: ticket.closed_by,
+          claimed_by: ticket.claimed_by,
+          claimed_at: ticket.claimed_at,
+        },
+        { statuses: ["closed"] },
+      ).catch(() => null);
+
+      if (reopened) {
+        await this.refreshControlMessage(
+          interaction,
+          reopened,
+          {
+            replace: true,
+            fallbackToKnownState: true,
+          },
+        ).catch((refreshError) => {
+          console.error("[evix-ticket-close-rollback-control-error]", refreshError);
+        });
+      }
+
       throw new Error("Ticket close failed: " + (error?.message || "permission update failed"));
     }
 
