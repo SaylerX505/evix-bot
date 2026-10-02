@@ -192,7 +192,7 @@ export class TicketService {
 
   async refreshControlMessage(interaction, ticket, { closed = false, welcomeOverride = null, closedBy = null, replace = false } = {}) {
     return queueTicketControlRefresh(ticket.id, async () => {
-      const latest = (await getTicketByChannel(interaction.guildId, ticket.channel_id).catch(() => null)) || ticket;
+      const latest = await this.getFreshTicket(interaction, ticket);
       if (latest.status === "deleted") return latest;
 
       const renderClosed = latest.status === "closed";
