@@ -75,7 +75,6 @@ export async function initDatabase(databaseUrl) {
       welcome_message TEXT NOT NULL DEFAULT '',
       ticket_name_template TEXT NOT NULL DEFAULT 'ticket-{number}',
       close_behavior TEXT NOT NULL DEFAULT 'move' CHECK (close_behavior IN ('move', 'stay')),
-      transcript_on_close BOOLEAN NOT NULL DEFAULT TRUE,
       allow_multiple BOOLEAN NOT NULL DEFAULT FALSE,
       button_style INTEGER NOT NULL DEFAULT 2 CHECK (button_style BETWEEN 1 AND 4),
       modal_fields JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -209,6 +208,8 @@ export async function initDatabase(databaseUrl) {
 
     ALTER TABLE guild_ticket_settings DROP COLUMN IF EXISTS waiting_category_id;
     ALTER TABLE tickets DROP COLUMN IF EXISTS waiting_at;
+    ALTER TABLE ticket_panel_options DROP COLUMN IF EXISTS transcript_on_close;
+    ALTER TABLE tickets DROP COLUMN IF EXISTS transcript_on_close;
 
     DROP INDEX IF EXISTS tickets_one_active_dedupe_idx;
     DROP INDEX IF EXISTS tickets_one_active_per_type;
@@ -390,7 +391,7 @@ export async function createPanel(data) {
     const panel = rows[0];
     if (data.withDefaultOption !== false) {
       await client.query(
-        "INSERT INTO ticket_panel_options (panel_id,position,component_kind,label,description,emoji,action,category_id,closed_category_id,staff_roles,ping_roles,log_channel_id,moderation_log_channel_id,transcript_channel_id,welcome_message,ticket_name_template,close_behavior,transcript_on_close,allow_multiple,button_style,modal_fields) " +
+        "INSERT INTO ticket_panel_options (panel_id,position,component_kind,label,description,emoji,action,category_id,closed_category_id,staff_roles,ping_roles,log_channel_id,moderation_log_channel_id,transcript_channel_id,welcome_message,ticket_name_template,close_behavior,allow_multiple,button_style,modal_fields) " +
         "VALUES ($1,0,'dropdown','Open Ticket',NULL,NULL,'CREATE_TICKET',NULL,NULL,'[]'::jsonb,'[]'::jsonb,NULL,NULL,NULL,'','ticket-{number}','move',TRUE,FALSE,2,'[]'::jsonb)",
         [panel.id],
       );
@@ -450,8 +451,8 @@ export async function resetPanel(panelId) {
     if (!panel) return null;
 
     await client.query(
-      "INSERT INTO ticket_panel_options (panel_id,position,component_kind,label,description,emoji,action,category_id,closed_category_id,staff_roles,ping_roles,log_channel_id,moderation_log_channel_id,transcript_channel_id,welcome_message,ticket_name_template,close_behavior,transcript_on_close,allow_multiple,button_style,modal_fields) " +
-      "VALUES ($1,0,'dropdown','Open Ticket',NULL,NULL,'CREATE_TICKET',NULL,NULL,'[]'::jsonb,'[]'::jsonb,NULL,NULL,NULL,'','ticket-{number}','move',TRUE,FALSE,2,'[]'::jsonb)",
+      "INSERT INTO ticket_panel_options (panel_id,position,component_kind,label,description,emoji,action,category_id,closed_category_id,staff_roles,ping_roles,log_channel_id,moderation_log_channel_id,transcript_channel_id,welcome_message,ticket_name_template,close_behavior,allow_multiple,button_style,modal_fields) " +
+      "VALUES ($1,0,'dropdown','Open Ticket',NULL,NULL,'CREATE_TICKET',NULL,NULL,'[]'::jsonb,'[]'::jsonb,NULL,NULL,NULL,'','ticket-{number}','move',FALSE,2,'[]'::jsonb)",
       [panelId],
     );
 
@@ -493,7 +494,7 @@ export async function addPanelOption(data) {
 
     const { rows } = await client.query(
       "INSERT INTO ticket_panel_options (panel_id,position,component_kind,label,description,emoji,action,category_id,closed_category_id,staff_roles,ping_roles,log_channel_id,moderation_log_channel_id,transcript_channel_id,welcome_message,ticket_name_template,close_behavior,transcript_on_close,allow_multiple,button_style,modal_fields) " +
-      "VALUES ($1,$2,'dropdown',$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20::jsonb) RETURNING *",
+      "VALUES ($1,$2,'dropdown',$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15,$16,$17,$18::jsonb) RETURNING *",
       [
         data.panelId,
         position,
@@ -542,7 +543,7 @@ export async function updatePanelOption(optionId, patch) {
   const allowed = [
     "position","component_kind","label","description","emoji","action","category_id","closed_category_id",
     "staff_roles","ping_roles","log_channel_id","moderation_log_channel_id","transcript_channel_id","welcome_message",
-    "ticket_name_template","close_behavior","transcript_on_close","allow_multiple","button_style","modal_fields"
+    "ticket_name_template","close_behavior","allow_multiple","button_style","modal_fields"
   ];
   const keys = Object.keys(patch).filter((key) => allowed.includes(key));
   if (!keys.length) throw new Error("No editable option fields were provided.");
@@ -594,8 +595,8 @@ export async function createTicket(data) {
 
     const { rows } = await client.query(
       "WITH next_id AS (SELECT nextval('tickets_id_seq') AS id) " +
-      "INSERT INTO tickets (id,guild_id,panel_id,option_id,ticket_key,channel_id,owner_id,type_label,status,category_id,current_category_id,closed_category_id,staff_roles,ping_roles,dedupe_key,log_channel_id,ticket_log_channel_id,moderation_log_channel_id,transcript_channel_id,transcript_log_channel_id,ticket_logs_enabled,moderation_logs_enabled,transcript_logs_enabled,control_message_id,welcome_message,close_behavior,transcript_on_close) " +
-      "SELECT id,$1,$2,$3,'EVX-' || LPAD(id::text,6,'0'),$4,$5,$6,'open',$7,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$12,$13,$14,$14,$15,$16,$17,$18,$19,$20,$21 FROM next_id RETURNING *",
+      "INSERT INTO tickets (id,guild_id,panel_id,option_id,ticket_key,channel_id,owner_id,type_label,status,category_id,current_category_id,closed_category_id,staff_roles,ping_roles,dedupe_key,log_channel_id,ticket_log_channel_id,moderation_log_channel_id,transcript_channel_id,transcript_log_channel_id,ticket_logs_enabled,moderation_logs_enabled,transcript_logs_enabled,control_message_id,welcome_message,close_behavior) " +
+      "SELECT id,$1,$2,$3,'EVX-' || LPAD(id::text,6,'0'),$4,$5,$6,'open',$7,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$12,$13,$14,$14,$15,$16,$17,$18,$19,$20 FROM next_id RETURNING *",
       [
         data.guildId,data.panelId,data.optionId,data.channelId,data.ownerId,data.typeLabel,data.categoryId,data.closedCategoryId,
         JSON.stringify(unique(data.staffRoles)),JSON.stringify(unique(data.pingRoles)),data.dedupeKey ?? null,
@@ -604,7 +605,6 @@ export async function createTicket(data) {
         data.controlMessageId ?? null,
         data.welcomeMessage || "Thanks for opening a ticket. A member of the team will be with you shortly.",
         data.closeBehavior || "move",
-        data.transcriptOnClose !== false,
       ],
     );
     return rows[0];
