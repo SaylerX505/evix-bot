@@ -113,6 +113,22 @@ test("ticket action lock serializes a ticket without holding a database connecti
   assert.equal(result, "ok");
 });
 
+test("ticket action queue continues after a failed action", async () => {
+  const order = [];
+  const first = withTicketActionLock(43, async () => {
+    order.push("first");
+    throw new Error("expected failure");
+  });
+  const second = withTicketActionLock(43, async () => {
+    order.push("second");
+    return "recovered";
+  });
+
+  await assert.rejects(first, /expected failure/);
+  assert.equal(await second, "recovered");
+  assert.deepEqual(order, ["first", "second"]);
+});
+
 test("ticket action lock serializes concurrent actions in order", async () => {
   const order = [];
   let release;
