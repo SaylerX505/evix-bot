@@ -227,7 +227,7 @@ export async function handleInteraction(interaction, { service, ui }) {
 
         if (action === "delete") {
           const deletion = await service.withTicketActionLock(ticketId, async () => {
-            const ticket = await service.getTicket(interaction, ticketId);
+            const ticket = await service.getFreshTicket(interaction, { id: ticketId });
             if (!service.canManageTicket(interaction.member, ticket)) {
               throw new Error("You are not authorized to confirm this action.");
             }
@@ -264,11 +264,7 @@ export async function handleInteraction(interaction, { service, ui }) {
           return;
         }
 
-        const ticket = await service.getTicket(interaction, ticketId);
-        const canManage = service.canManageTicket(interaction.member, ticket);
-        const canClose = service.canClose(interaction.member, ticket);
         if (action === "keep-open" || action === "cancel") {
-          if (!canManage && !canClose) throw new Error("You are not authorized to dismiss this confirmation.");
           return;
         }
 
