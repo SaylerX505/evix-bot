@@ -51,7 +51,7 @@ function footer(guild) {
   return section;
 }
 
-export async function writeTicketLog(guild, ticket, eventType, actorId, details = {}) {
+export async function writeTicketLog(guild, ticket, eventType, actorId, details = {}, files = []) {
   try {
     const label = LOG_EVENT_LABELS.get(eventType);
     if (!label) return false;
@@ -89,11 +89,13 @@ export async function writeTicketLog(guild, ticket, eventType, actorId, details 
       const channel = await guild.channels.fetch(channelId).catch(() => null);
       if (!channel?.isTextBased?.()) continue;
       try {
-        await channel.send({
+        const payload = {
           components: [container],
           flags: MessageFlags.IsComponentsV2,
           allowedMentions: { parse: [] },
-        });
+        };
+        if (Array.isArray(files) && files.length) payload.files = files;
+        await channel.send(payload);
         return true;
       } catch (error) {
         console.error("[evix-ticket-log-channel-send-error]", { channelId, error });
