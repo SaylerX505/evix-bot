@@ -9,7 +9,7 @@ import {
   setPanelDraft,
 } from "./panels.js";
 import { getPanel, getPanelOption, updatePanel } from "./db.js";
-import { buildActionResult, buildCloseConfirmation, buildClosedTicketView, buildErrorResult, buildInfoView, buildPanelMessage, buildTicketView, v2Message } from "./ui.js";
+import { buildActionResult, buildCloseConfirmation, buildClosedTicketView, buildErrorResult, buildV2ErrorResult, buildInfoView, buildPanelMessage, buildTicketView, v2Message } from "./ui.js";
 import { logInteractionError, normalizeError } from "./errors.js";
 import { buildRenameModal, buildTicketModal, handlePanelAutocomplete, handlePanelCommand, handleTicketCommand } from "./commands.js";
 import { validateModalFields } from "./utils.js";
@@ -29,6 +29,7 @@ async function requirePanelDraft(interaction, panelId) {
 }
 
 export async function handleInteraction(interaction, { service, ui }) {
+  let deferredComponentUpdate = false;
   try {
     if (interaction.isAutocomplete()) {
       if (interaction.commandName === "panel") await handlePanelAutocomplete(interaction);
@@ -109,6 +110,7 @@ export async function handleInteraction(interaction, { service, ui }) {
       }
       setPanelDraft(interaction.guildId, interaction.user.id, match[1], draft);
       await interaction.deferUpdate();
+      deferredComponentUpdate = true;
       return await interaction.editReply(buildPanelStudioPayload(draft, interaction.client.user));
     }
 
@@ -130,6 +132,7 @@ export async function handleInteraction(interaction, { service, ui }) {
       if (action === "close") {
         clearPanelDraft(interaction.guildId, interaction.user.id, panelId);
         await interaction.deferUpdate();
+        deferredComponentUpdate = true;
         return interaction.deleteReply().catch(() => null);
       }
       const draft = await requirePanelDraft(interaction, panelId);
@@ -182,6 +185,7 @@ export async function handleInteraction(interaction, { service, ui }) {
 
       // Acknowledge immediately; database/API work must not consume Discord's interaction window.
       await interaction.deferUpdate();
+      deferredComponentUpdate = true;
 
       try {
         const ticket = await service.getTicket(interaction, ticketId);
@@ -264,6 +268,6 @@ export async function handleInteraction(interaction, { service, ui }) {
       await interaction.respond([]).catch(() => null);
       return;
     }
-    await replySafely(interaction, buildErrorResult(normalized)).catch(() => null);
+    await replySafely(interaction, deferredComponentUpdate ? buildV2ErrorResult(normalized) : buildErrorResult(normalized)).catch(() => null);
   }
 }
