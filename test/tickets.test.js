@@ -82,6 +82,8 @@ test("control refresh requires fresh ticket state and does not trust stale input
     const rendered = JSON.stringify(edited[0].components.map((component) => component.toJSON()));
     assert.match(rendered, /Get Transcript/);
     assert.doesNotMatch(rendered, /evix:t:41:claim|evix:t:41:close|evix:t:41:info/);
+  } finally {
+    service.getFreshTicket = originalFresh;
   }
 });
 
@@ -120,6 +122,8 @@ test("post-mutation control refresh may use only the explicitly trusted state on
     const rendered = JSON.stringify(edited[0].components.map((component) => component.toJSON()));
     assert.match(rendered, /Get Transcript/);
     assert.doesNotMatch(rendered, /evix:t:54:claim|evix:t:54:close|evix:t:54:info/);
+  } finally {
+    service.getFreshTicket = originalFresh;
   }
 });
 
