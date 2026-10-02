@@ -9,7 +9,7 @@
     "start": "node src/index.js",
     "deploy": "node src/deploy-commands.js",
     "test": "node --test",
-    "test:db": "node --test test/db.integration.test.js",
+    "test:db": "node --test test/db.integration.js",
     "check": "node scripts/check-syntax.js"
   },
   "dependencies": {
