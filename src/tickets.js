@@ -69,7 +69,11 @@ export class TicketService {
 
   async getTicket(interaction, ticketId = null) {
     let ticket = getCachedTicketByChannel(interaction.guildId, interaction.channelId);
-    if (!ticket) ticket = await getTicketByChannel(interaction.guildId, interaction.channelId);
+    if (ticket) {
+      ticket = await getTicketById(interaction.guildId, ticket.id);
+    } else {
+      ticket = await getTicketByChannel(interaction.guildId, interaction.channelId);
+    }
     if (!ticket && ticketId !== null) {
       const candidate = await getTicketById(interaction.guildId, ticketId);
       if (candidate && String(candidate.channel_id) === String(interaction.channelId)) {
