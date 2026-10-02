@@ -41,6 +41,23 @@ test("memory cache returns isolated copies and invalidation wins over stale in-f
   assert.equal(cache.get("guild").nested.value, 3);
 });
 
+test("global cache clear invalidates in-flight loads", async () => {
+  const cache = new MemoryCache({ maxEntries: 8, ttlMs: 1_000 });
+  let release;
+  const blocked = new Promise((resolve) => { release = resolve; });
+
+  const load = getCached(cache, "guild", async () => {
+    await blocked;
+    return { value: "stale" };
+  });
+
+  cache.clear();
+  release();
+
+  assert.deepEqual(await load, { value: "stale" });
+  assert.equal(cache.get("guild"), undefined);
+});
+
 test("single-flight collapses concurrent identical loads into one operation", async () => {
   let calls = 0;
   const promises = [
