@@ -2,7 +2,7 @@
 
 Professional Discord ticketing system for Evix.
 
-Evix 1.0.2 provides a Discord-native ticket workflow with a clean Components V2 UI, configurable panels, select menus, forms, role-based access, transcripts, and audit logs.
+Evix 1.0.2 provides a Discord-native ticket workflow with a clean Components V2 UI, configurable panels, select menus, role-based access, manual transcripts, and audit logs.
 
 ## Requirements
 
@@ -76,9 +76,9 @@ Panel options support:
 - `CREATE_TICKET`
 - `NOTHING`
 
-`NOTHING` is useful for a reset/no-op dropdown entry. `CREATE_TICKET` creates a private channel with the option's configured category, staff roles, ping roles, naming template, welcome message, forms, transcript behavior, and close behavior.
+`NOTHING` is useful for a reset/no-op dropdown entry. `CREATE_TICKET` creates a private channel with the option's configured category, staff roles, ping roles, naming template, welcome message, and close behavior. Existing stored modal fields remain supported for backward compatibility.
 
-The database is PostgreSQL and startup schema creation is additive/idempotent. Existing ticket data is never dropped by startup.
+The database is PostgreSQL and startup schema creation is idempotent. Ticket rows are preserved across migrations; obsolete legacy state/setting columns are reconciled and removed without deleting ticket records.
 
 Transcript generation is manual-only. The transcript audit event uses the dedicated transcript log channel when configured, otherwise it falls back to the ticket lifecycle log when ticket logs are enabled.
 
@@ -89,11 +89,11 @@ Existing ticket options can still contain stored modal fields for backward compa
 
 ## UI
 
-Evix uses Discord Components V2 with Containers, Text Displays, Separators, Buttons, Select Menus, and Action Rows for the panel and ticket views. Components V2 messages use the `MessageFlags.IsComponentsV2` flag; normal content/embeds are not mixed into those V2 messages.
+Evix uses Discord Components V2 with Containers, Text Displays, Separators, Buttons, Select Menus, and Action Rows for the panel and ticket views. Ticket panels themselves currently use dropdown/select menus; ticket lifecycle views use buttons where an action is available. Components V2 messages use the `MessageFlags.IsComponentsV2` flag; normal content/embeds are not mixed into those V2 messages.
 
 ## Safety and lifecycle
 
-Delete actions use a confirmation step. Ticket control messages are refreshed after claim, close, and reopen actions. The global per-member open-ticket limit remains enforced even when a ticket type allows multiple tickets of that type.
+Delete actions use a confirmation step. Ticket control messages are refreshed after claim, close, and reopen actions, with closed tickets exposing only `Get Transcript`, `Reopen`, and `Delete Ticket`. The global per-member open-ticket limit remains enforced even when a ticket type allows multiple tickets of that type.
 
 ## Release
 

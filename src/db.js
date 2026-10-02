@@ -372,13 +372,16 @@ export async function upsertGuildSettings(guildId, patch) {
   });
 }
 export async function createPanel(data) {
+  const name = String(data.name ?? "").trim();
+  if (!name) throw new Error("Panel name cannot be empty.");
+
   return withTransaction(async (client) => {
     const { rows } = await client.query(
       "INSERT INTO ticket_panels (guild_id,name,component_mode,title,description,image_url,accent_color,placeholder,footer,footer_show_bot) " +
       "VALUES ($1,$2,'dropdown',$3,$4,$5,$6,$7,$8,$9) RETURNING *",
       [
         data.guildId,
-        data.name,
+        name,
         data.title ?? "",
         data.description ?? "",
         data.imageUrl ?? null,
@@ -393,7 +396,7 @@ export async function createPanel(data) {
     if (data.withDefaultOption !== false) {
       await client.query(
         "INSERT INTO ticket_panel_options (panel_id,position,component_kind,label,description,emoji,action,category_id,closed_category_id,staff_roles,ping_roles,log_channel_id,moderation_log_channel_id,transcript_channel_id,welcome_message,ticket_name_template,close_behavior,allow_multiple,button_style,modal_fields) " +
-        "VALUES ($1,0,'dropdown','Open Ticket',NULL,NULL,'CREATE_TICKET',NULL,NULL,'[]'::jsonb,'[]'::jsonb,NULL,NULL,NULL,'','ticket-{number}','move',TRUE,FALSE,2,'[]'::jsonb)",
+        "VALUES ($1,0,'dropdown','Open Ticket',NULL,NULL,'CREATE_TICKET',NULL,NULL,'[]'::jsonb,'[]'::jsonb,NULL,NULL,NULL,'','ticket-{number}','move',FALSE,2,'[]'::jsonb)",
         [panel.id],
       );
     }
@@ -422,6 +425,10 @@ export async function listPanels(guildId) {
 }
 
 export async function updatePanel(panelId, patch) {
+  if (Object.hasOwn(patch, "name")) {
+    patch = { ...patch, name: String(patch.name ?? "").trim() };
+    if (!patch.name) throw new Error("Panel name cannot be empty.");
+  }
   const allowed = [
     "channel_id","message_id","component_mode","title","description","image_url",
     "accent_color","placeholder","footer","footer_show_bot","name"
@@ -468,6 +475,8 @@ export async function resetPanel(panelId) {
 
 export async function addPanelOption(data) {
   const action = data.action ?? "CREATE_TICKET";
+  const label = String(data.label ?? "").trim();
+  if (!label) throw new Error("Panel option name cannot be empty.");
   if (!["CREATE_TICKET", "NOTHING"].includes(action)) throw new Error("Panel option action must be CREATE_TICKET or NOTHING.");
 
   return withTransaction(async (client) => {
@@ -499,7 +508,7 @@ export async function addPanelOption(data) {
       [
         data.panelId,
         position,
-        data.label,
+        label,
         data.description ?? null,
         data.emoji ?? null,
         action,
@@ -540,6 +549,10 @@ export async function getPanelOption(optionId, guildId = null) {
 }
 
 export async function updatePanelOption(optionId, patch) {
+  if (Object.hasOwn(patch, "label")) {
+    patch = { ...patch, label: String(patch.label ?? "").trim() };
+    if (!patch.label) throw new Error("Panel option name cannot be empty.");
+  }
   const allowed = [
     "position","component_kind","label","description","emoji","action","category_id","closed_category_id",
     "staff_roles","ping_roles","log_channel_id","moderation_log_channel_id","transcript_channel_id","welcome_message",

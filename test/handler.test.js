@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { MessageFlags } from "discord.js";
 import { withTicketActionLock } from "../src/db.js";
 import { handleInteraction } from "../src/handler.js";
+import { clearPanelDraft, setPanelDraft } from "../src/panels.js";
 
 function makeButton(customId) {
   const calls = [];
@@ -66,7 +67,7 @@ test("confirm close surfaces a failure after removing the confirmation", async (
   const service = serviceFor({ id: 42, owner_id: "owner", status: "open", staff_roles: [] });
   service.close = async () => { throw new Error("Close failed"); };
   await handleInteraction(interaction, { service, ui: {} });
-  assert.deepEqual(interaction.calls, ["deferUpdate", "deleteReply", "followUp"]);
+  assert.deepEqual(interaction.calls, ["deferUpdate", "deleteReply", "deleteReply", "followUp"]);
 });
 
 
@@ -198,6 +199,56 @@ test("confirmation buttons acknowledge before a slow ticket lookup", async () =>
   }
 });
 
+
+test("component deferUpdate failures return a Components V2 error instead of an embed", async () => {
+  const panelId = "77";
+  setPanelDraft("guild", "user", panelId, {
+    id: Number(panelId),
+    name: "Panel",
+    title: "",
+    description: "",
+    image_url: null,
+    accent_color: 0x5865f2,
+    placeholder: "",
+    options: Array.from({ length: 26 }, (_, index) => ({
+      id: index + 1,
+      label: "Option " + (index + 1),
+      action: "CREATE_TICKET",
+    })),
+  });
+
+  const interaction = {
+    customId: "evix:panelstudio-modal:77:basic",
+    commandName: null,
+    guildId: "guild",
+    channelId: "channel",
+    user: { id: "user" },
+    member: { id: "user" },
+    memberPermissions: { has: () => true },
+    deferred: false,
+    replied: false,
+    isAutocomplete: () => false,
+    isChatInputCommand: () => false,
+    isStringSelectMenu: () => false,
+    isModalSubmit: () => true,
+    isButton: () => false,
+    fields: { fields: new Map([["name", { value: "Panel" }]]) },
+    client: { user: null },
+    deferUpdate: async () => { interaction.deferred = true; },
+    editReply: async (payload) => { interaction.errorPayload = payload; },
+    reply: async () => { interaction.replied = true; },
+  };
+
+  try {
+    await handleInteraction(interaction, { service: {}, ui: {} });
+    assert.ok(interaction.errorPayload);
+    assert.equal(interaction.errorPayload.flags, MessageFlags.IsComponentsV2);
+    assert.equal(interaction.errorPayload.embeds, undefined);
+    assert.match(JSON.stringify(interaction.errorPayload.components.map((component) => component.toJSON())), /Evix Error/);
+  } finally {
+    clearPanelDraft("guild", "user", panelId);
+  }
+});
 
 test("async ticket service failures are caught after the interaction is acknowledged", async () => {
   const interaction = makeButton("evix:t:42:claim");

@@ -1,6 +1,6 @@
 # Evix Ticket System Design
 
-**Version:** 1.0.1
+**Version:** 1.0.3
 **Bot name:** Evix
 **Repository:** SaylerX505/evix-bot
 
@@ -10,7 +10,7 @@ Build a Discord-native ticketing system for Evix with TicketCord-like workflow s
 
 ## Product behavior
 
-Evix provides configurable ticket panels using both Discord buttons and select menus. Every interactive option resolves through the same action layer, so UI type does not change ticket behavior.
+Evix provides configurable ticket panels using Discord select menus. Ticket lifecycle controls use buttons; panel options resolve through the same action layer.
 
 Supported panel actions:
 - CREATE_TICKET: creates a private ticket channel using the option's configuration.
@@ -23,23 +23,22 @@ Each ticket type can independently define:
 - ping roles
 - ticket channel naming template
 - initial/welcome message
-- optional modal form shown before creation
+- optional legacy modal form retained on existing options
 - close behavior
-- transcript behavior
 - log destination
 
 ## Ticket lifecycle
 
-1. User selects a configured button/select option.
+1. User selects a configured dropdown option.
 2. If a form is configured, Evix presents the modal and validates its inputs.
 3. Evix checks the guild configuration and whether the user already has an open ticket for that ticket type where required by configuration.
 4. Evix creates the ticket channel under the configured category.
 5. Channel permissions grant the ticket owner access, grant configured staff roles access, and deny @everyone access.
 6. Evix sends the configured ticket welcome view and optional role mentions.
 7. Staff can claim/unclaim, add/remove members, rename, close, reopen, and generate transcripts according to permissions. Manage Channels is accepted as a ticket-management override.
-8. Close changes ticket state and either moves it to the configured closed category or leaves it in place, according to ticket type configuration.
-9. Transcript and audit log events are generated according to configuration.
-10. Delete requires confirmation, then permanently removes the channel after the configured close flow.
+8. Close changes ticket state and either moves it to the configured closed category or leaves it in place, according to ticket type configuration, and replaces the public control message with the closed-ticket view.
+9. Transcripts are manual-only via `/ticket transcript` or `Get Transcript` on a closed ticket. Visible audit logs are limited to Open, Claimed, Closed, Deleted, and Transcript.
+10. Delete requires confirmation, marks the ticket deleted transactionally, and removes the channel; it does not run the close workflow first.
 
 Ticket state is persistent and recoverable after process restart.
 
@@ -58,7 +57,6 @@ The bot validates required Discord permissions before ticket creation or permiss
 ## Panels and Components V2
 
 Panels support:
-- buttons
 - select menus
 - multiple panels per guild
 - configurable embed/content styling
@@ -93,19 +91,21 @@ The UI layer must not contain database/business rules.
 - /ticket add
 - /ticket remove
 - /ticket rename
-- /ticket lock
-- /ticket unlock
 - /ticket delete
 
 ### Administration
 - /ticket setup
 - /ticket config
 - /ticket logs
-- /ticket panel create
-- /ticket panel edit
-- /ticket panel delete
-- /ticket panel send
-- /ticket panel reset
+- /panel create
+- /panel edit
+- /panel list
+- /panel delete
+- /panel send
+- /panel reset
+- /panel option-add
+- /panel option-edit
+- /panel option-remove
 
 Command descriptions and option names must remain clear and Discord-native. Panel and option references use Discord autocomplete selectors instead of manually entered numeric IDs.
 
@@ -113,7 +113,7 @@ Command descriptions and option names must remain clear and Discord-native. Pane
 
 PostgreSQL is the source of truth.
 
-The schema is additive and idempotent. Startup migrations must never drop ticket data.
+The schema is idempotent and preserves ticket rows across startup migrations. Obsolete legacy state/setting columns may be normalized or removed without deleting ticket records.
 
 Core persisted entities:
 - guild_ticket_settings
@@ -179,12 +179,14 @@ Failure cases explicitly covered:
 - deleted ticket channel
 - transcript with no messages
 - interaction expiry/late acknowledgement
-- invalid modal submission
+- invalid/legacy modal submission
 - stale panel message after configuration reset
+- control refresh with stale DB state
+- failed control replacement without reintroducing unsafe controls
 
 ## Scope exclusions
 
-Version 1.0.1 does not include:
+Version 1.0.3 does not include:
 - AI
 - web dashboard
 - external ticket CRM
@@ -198,22 +200,20 @@ Version 1.0.1 does not include:
 
 The production implementation is released as **1.0.2**.
 
-Implementation history should remain understandable and human-like. The preferred release shape is a focused implementation commit titled:
-
-**release: 1.0.1 — launch Evix ticket system**
-
-Tests/docs may be included in that release commit when they belong to the release.
+Implementation history should remain understandable and focused. Tests and documentation updates may be included with the corresponding implementation change.
 
 ## Success criteria
 
 A fresh Evix deployment can:
 - start without losing persisted configuration
 - register global slash commands by default
-- create a panel with buttons and/or a select menu
+- create a dropdown panel
 - map each option to CREATE_TICKET or NOTHING
 - create private tickets with option-specific staff/ping roles
 - support the complete ticket lifecycle
-- generate logs/transcripts reliably
+- generate manual transcripts and the five supported visible lifecycle logs reliably
 - survive restarts without losing ticket state/configuration
 - present a clean Components V2 UI consistent with Evix branding
+- serialize per-ticket mutation and channel-rename races
+- reconcile externally deleted ticket channels
 - pass the complete automated test suite and hard-debug verification

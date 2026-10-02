@@ -144,7 +144,7 @@ export function buildCloseConfirmation(ticket) {
     "Close Ticket Confirmation",
     [
       "Are you sure you want to close this ticket?",
-      "**This action will:**\n> • Remove the ticket creator's access\n> • Rename the channel to `closed-" + ticket.ticket_key + "`\n> • Mark the ticket as closed in the system",
+      "**This action will:**\n> • Remove regular participant access\n> • Rename the channel to `closed-" + ticket.ticket_key + "`\n> • Mark the ticket as closed in the system",
     ],
     0xed4245,
   );
@@ -198,6 +198,20 @@ export function buildAdminEmbed(title, description, color = DEFAULT_ACCENT) {
     embeds: [new EmbedBuilder().setTitle(title).setDescription(description).setColor(color).setFooter({ text: "Powered by Evix team" })],
     allowedMentions: { parse: [] },
   };
+}
+
+export function buildV2ErrorResult(error) {
+  return v2Message([
+    containerWithText(
+      "Evix Error",
+      [
+        String(error?.message || "Something went wrong."),
+        "",
+        "-# Code: " + String(error?.code || "EVIX_ERROR") + " · Reference: " + String(error?.reference || "unknown"),
+      ],
+      0xed4245,
+    ),
+  ]);
 }
 
 export function buildErrorResult(error) {

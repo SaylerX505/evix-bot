@@ -9,9 +9,14 @@ import {
   setPanelDraft,
 } from "./panels.js";
 import { getPanel, getPanelOption, updatePanel } from "./db.js";
-import { buildActionResult, buildCloseConfirmation, buildClosedTicketView, buildErrorResult, buildInfoView, buildPanelMessage, buildTicketView, v2Message } from "./ui.js";
+import { buildActionResult, buildCloseConfirmation, buildClosedTicketView, buildErrorResult, buildV2ErrorResult, buildInfoView, buildPanelMessage, buildTicketView, v2Message } from "./ui.js";
 import { logInteractionError, normalizeError } from "./errors.js";
 import { buildRenameModal, buildTicketModal, handlePanelAutocomplete, handlePanelCommand, handleTicketCommand } from "./commands.js";
+import { validateModalFields } from "./utils.js";
+
+function modalTextValue(fields, customId) {
+  return fields?.fields?.get(customId)?.value ?? "";
+}
 
 async function replySafely(interaction, payload) {
   if (interaction.deferred || interaction.replied) return interaction.editReply(payload);
@@ -24,6 +29,7 @@ async function requirePanelDraft(interaction, panelId) {
 }
 
 export async function handleInteraction(interaction, { service, ui }) {
+  let deferredComponentUpdate = false;
   try {
     if (interaction.isAutocomplete()) {
       if (interaction.commandName === "panel") await handlePanelAutocomplete(interaction);
@@ -76,10 +82,11 @@ export async function handleInteraction(interaction, { service, ui }) {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const option = await getPanelOption(match[1], interaction.guildId);
       if (!option) throw new Error("This ticket form is no longer available.");
+      const fields = validateModalFields(option.modal_fields ?? []);
       const formValues = {};
-      for (const field of option.modal_fields ?? []) {
-        const value = interaction.fields.getTextInputValue(field.id);
-        if (value?.trim()) formValues[field.id] = value;
+      for (const field of fields) {
+        const value = modalTextValue(interaction.fields, field.id);
+        if (value.trim()) formValues[field.id] = value;
       }
       await service.createFromOption(interaction, option, formValues);
       return;
@@ -91,18 +98,19 @@ export async function handleInteraction(interaction, { service, ui }) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) throw new Error("You need Manage Server to edit ticket panels.");
       const draft = await requirePanelDraft(interaction, match[1]);
       if (match[2] === "basic") {
-        draft.name = interaction.fields.getTextInputValue("name").trim();
-        draft.title = interaction.fields.getTextInputValue("title").trim();
-        draft.description = interaction.fields.getTextInputValue("description").trim();
+        draft.name = modalTextValue(interaction.fields, "name").trim();
+        draft.title = modalTextValue(interaction.fields, "title").trim();
+        draft.description = modalTextValue(interaction.fields, "description").trim();
         draft.footer = "";
         draft.footer_show_bot = false;
       } else {
         const uploaded = interaction.fields.getUploadedFiles("image_file", false)?.first?.();
-        const imageUrl = uploaded?.url || interaction.fields.getTextInputValue("image_url")?.trim() || "";
+        const imageUrl = uploaded?.url || modalTextValue(interaction.fields, "image_url").trim() || "";
         draft.image_url = imageUrl || null;
       }
       setPanelDraft(interaction.guildId, interaction.user.id, match[1], draft);
       await interaction.deferUpdate();
+      deferredComponentUpdate = true;
       return await interaction.editReply(buildPanelStudioPayload(draft, interaction.client.user));
     }
 
@@ -124,6 +132,7 @@ export async function handleInteraction(interaction, { service, ui }) {
       if (action === "close") {
         clearPanelDraft(interaction.guildId, interaction.user.id, panelId);
         await interaction.deferUpdate();
+        deferredComponentUpdate = true;
         return interaction.deleteReply().catch(() => null);
       }
       const draft = await requirePanelDraft(interaction, panelId);
@@ -131,6 +140,7 @@ export async function handleInteraction(interaction, { service, ui }) {
       if (action === "media") return await interaction.showModal(panelMediaModal(draft));
       if (action === "save") {
         await interaction.deferUpdate();
+        deferredComponentUpdate = true;
         const current = await getPanel(interaction.guildId, panelId);
         if (!current) throw new Error("Panel not found.");
         const panelName = String(draft.name || "").trim();
@@ -176,20 +186,23 @@ export async function handleInteraction(interaction, { service, ui }) {
 
       // Acknowledge immediately; database/API work must not consume Discord's interaction window.
       await interaction.deferUpdate();
-
-      const ticket = await service.getTicket(interaction, ticketId);
-      const canManage = service.canManageTicket(interaction.member, ticket);
-      const canClose = service.canClose(interaction.member, ticket);
-      if (!canManage && !((action === "close" || action === "keep-open") && canClose)) throw new Error("You are not authorized to confirm this action.");
-
-      if (action === "keep-open" || action === "cancel") {
-        await interaction.deleteReply().catch(() => null);
-        return;
-      }
-
-      await interaction.deleteReply().catch(() => null);
+      deferredComponentUpdate = true;
 
       try {
+        const ticket = await service.getTicket(interaction, ticketId);
+        const canManage = service.canManageTicket(interaction.member, ticket);
+        const canClose = service.canClose(interaction.member, ticket);
+        if (!canManage && !((action === "close" || action === "keep-open") && canClose)) {
+          throw new Error("You are not authorized to confirm this action.");
+        }
+
+        if (action === "keep-open" || action === "cancel") {
+          await interaction.deleteReply().catch(() => null);
+          return;
+        }
+
+        await interaction.deleteReply().catch(() => null);
+
         if (action === "close") {
           await service.withTicketActionLock(ticket.id, () =>
             service.close(interaction, ticket, { reply: false, closedBy: interaction.user.id }),
@@ -209,6 +222,7 @@ export async function handleInteraction(interaction, { service, ui }) {
       } catch (error) {
         const normalized = normalizeError(error);
         logInteractionError(interaction, normalized, error);
+        await interaction.deleteReply().catch(() => null);
         await interaction.followUp({
           ...buildErrorResult(normalized),
           flags: MessageFlags.Ephemeral,
@@ -255,6 +269,6 @@ export async function handleInteraction(interaction, { service, ui }) {
       await interaction.respond([]).catch(() => null);
       return;
     }
-    await replySafely(interaction, buildErrorResult(normalized)).catch(() => null);
+    await replySafely(interaction, deferredComponentUpdate ? buildV2ErrorResult(normalized) : buildErrorResult(normalized)).catch(() => null);
   }
 }

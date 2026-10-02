@@ -79,7 +79,7 @@ const panelCommand = new SlashCommandBuilder()
   .addSubcommand((s) => s.setName("delete").setDescription("Delete a ticket panel").addStringOption((o) => o.setName("panel").setDescription("Select a panel").setRequired(true).setAutocomplete(true)))
   .addSubcommand((s) => s.setName("option-add").setDescription("Add a ticket option to a panel")
     .addStringOption((o) => o.setName("panel").setDescription("Select a panel").setRequired(true).setAutocomplete(true))
-    .addStringOption((o) => o.setName("name").setDescription("Dropdown option name").setRequired(true).setMaxLength(80))
+    .addStringOption((o) => o.setName("name").setDescription("Dropdown option name").setRequired(true).setMinLength(1).setMaxLength(80))
     .addStringOption((o) => o.setName("action").setDescription("What should happen when selected").setRequired(true).addChoices({ name: "Create ticket", value: "CREATE_TICKET" }, { name: "Nothing", value: "NOTHING" }))
     .addStringOption((o) => o.setName("description").setDescription("Optional dropdown description").setMaxLength(100))
     .addStringOption((o) => o.setName("emoji").setDescription("Optional emoji"))
@@ -92,7 +92,7 @@ const panelCommand = new SlashCommandBuilder()
   .addSubcommand((s) => s.setName("option-edit").setDescription("Edit a ticket option")
     .addStringOption((o) => o.setName("panel").setDescription("Select a panel").setRequired(true).setAutocomplete(true))
     .addStringOption((o) => o.setName("option").setDescription("Select an option").setRequired(true).setAutocomplete(true))
-    .addStringOption((o) => o.setName("name").setDescription("Dropdown option name").setMaxLength(80))
+    .addStringOption((o) => o.setName("name").setDescription("Dropdown option name").setMinLength(1).setMaxLength(80))
     .addStringOption((o) => o.setName("description").setDescription("Dropdown description; use - to clear").setMaxLength(100))
     .addStringOption((o) => o.setName("emoji").setDescription("Emoji; use - to clear"))
     .addChannelOption((o) => channelOption(o, "category", "Optional category override", [ChannelType.GuildCategory]))
@@ -372,7 +372,11 @@ export async function handlePanelCommand(interaction, ui) {
     if (category && clearCategory) throw new Error("Choose either a category or clear category.");
     if (closedCategory && clearClosedCategory) throw new Error("Choose either a closed category or clear closed category.");
     if (staffRole || pingRole) await validateConfiguredRoles(interaction.guild, [staffRole?.id, pingRole?.id]);
-    if (name !== null) patch.label = name;
+    if (name !== null) {
+      const trimmedName = name.trim();
+      if (!trimmedName) throw new Error("Panel option name cannot be empty.");
+      patch.label = trimmedName;
+    }
     if (description !== null) patch.description = description === "-" ? null : description;
     if (emoji !== null) patch.emoji = emoji === "-" ? null : emoji;
     if (clearCategory) patch.category_id = null;
