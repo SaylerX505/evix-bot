@@ -85,6 +85,8 @@ const panelCommand = new SlashCommandBuilder()
     .addStringOption((o) => o.setName("emoji").setDescription("Optional emoji"))
     .addChannelOption((o) => channelOption(o, "category", "Optional category override", [ChannelType.GuildCategory]))
     .addChannelOption((o) => channelOption(o, "closed_category", "Optional closed-category override", [ChannelType.GuildCategory]))
+    .addBooleanOption((o) => o.setName("clear_category").setDescription("Use the global ticket category"))
+    .addBooleanOption((o) => o.setName("clear_closed_category").setDescription("Use the global closed category"))
     .addRoleOption((o) => o.setName("staff_roles").setDescription("Optional staff role"))
     .addRoleOption((o) => o.setName("ping_roles").setDescription("Optional role to ping when a ticket is created"))
     .addStringOption((o) => o.setName("close_behavior").setDescription("Optional close routing behavior").addChoices({ name: "Move", value: "move" }, { name: "Stay", value: "stay" }))
@@ -356,6 +358,8 @@ export async function handlePanelCommand(interaction, ui) {
     const emoji = interaction.options.getString("emoji");
     const category = interaction.options.getChannel("category");
     const closedCategory = interaction.options.getChannel("closed_category");
+    const clearCategory = interaction.options.getBoolean("clear_category") === true;
+    const clearClosedCategory = interaction.options.getBoolean("clear_closed_category") === true;
     const staffRole = interaction.options.getRole("staff_roles");
     const pingRole = interaction.options.getRole("ping_roles");
     const clearStaffRoles = interaction.options.getBoolean("clear_staff_roles") === true;
@@ -365,12 +369,16 @@ export async function handlePanelCommand(interaction, ui) {
     const action = interaction.options.getString("action");
     const name = interaction.options.getString("name");
 
+    if (category && clearCategory) throw new Error("Choose either a category or clear category.");
+    if (closedCategory && clearClosedCategory) throw new Error("Choose either a closed category or clear closed category.");
     if (staffRole || pingRole) await validateConfiguredRoles(interaction.guild, [staffRole?.id, pingRole?.id]);
     if (name !== null) patch.label = name;
     if (description !== null) patch.description = description === "-" ? null : description;
     if (emoji !== null) patch.emoji = emoji === "-" ? null : emoji;
-    if (category) patch.category_id = category.id;
-    if (closedCategory) patch.closed_category_id = closedCategory.id;
+    if (clearCategory) patch.category_id = null;
+    else if (category) patch.category_id = category.id;
+    if (clearClosedCategory) patch.closed_category_id = null;
+    else if (closedCategory) patch.closed_category_id = closedCategory.id;
     if (staffRole && clearStaffRoles) throw new Error("Choose either a staff role or clear staff roles.");
     if (pingRole && clearPingRoles) throw new Error("Choose either a ping role or clear ping roles.");
     if (clearStaffRoles) patch.staff_roles = [];
