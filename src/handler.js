@@ -140,6 +140,7 @@ export async function handleInteraction(interaction, { service, ui }) {
       if (action === "media") return await interaction.showModal(panelMediaModal(draft));
       if (action === "save") {
         await interaction.deferUpdate();
+        deferredComponentUpdate = true;
         const current = await getPanel(interaction.guildId, panelId);
         if (!current) throw new Error("Panel not found.");
         const panelName = String(draft.name || "").trim();
