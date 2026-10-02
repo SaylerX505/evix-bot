@@ -293,7 +293,7 @@ export async function withTicketActionLock(ticketId, callback) {
 export async function getGuildSettings(guildId) {
   const key = String(guildId);
   const cached = guildSettingsCache.get(key);
-  if (cached && cached.expiresAt > Date.now()) return { ...cached.value };
+  if (cached && cached.expiresAt > Date.now()) return cached.value === null ? null : { ...cached.value };
 
   const { rows } = await query("SELECT * FROM guild_ticket_settings WHERE guild_id=$1", [guildId]);
   const row = rows[0];
