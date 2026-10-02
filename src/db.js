@@ -201,6 +201,10 @@ export async function initDatabase(databaseUrl) {
        OR transcript_log_channel_id IS NULL;
 
     ALTER TABLE tickets DROP CONSTRAINT IF EXISTS tickets_status_check;
+
+    DROP INDEX IF EXISTS tickets_one_active_dedupe_idx;
+    DROP INDEX IF EXISTS tickets_one_active_per_type;
+
     UPDATE tickets
     SET status = 'open', claimed_by = NULL, claimed_at = NULL
     WHERE status IN ('waiting', 'locked');
@@ -210,8 +214,6 @@ export async function initDatabase(databaseUrl) {
     ALTER TABLE ticket_panel_options DROP COLUMN IF EXISTS transcript_on_close;
     ALTER TABLE tickets DROP COLUMN IF EXISTS transcript_on_close;
 
-    DROP INDEX IF EXISTS tickets_one_active_dedupe_idx;
-    DROP INDEX IF EXISTS tickets_one_active_per_type;
     CREATE UNIQUE INDEX IF NOT EXISTS tickets_one_active_dedupe_idx
       ON tickets (guild_id, owner_id, option_id, dedupe_key)
       WHERE status = 'open' AND dedupe_key IS NOT NULL;
