@@ -212,29 +212,39 @@ test("concurrent delete confirmations do not wait for the first Discord channel 
   service.getTicket = async () => ticketByCall.shift() || { id: 42, owner_id: "owner", status: "deleted", staff_roles: [] };
   service.canManageTicket = () => true;
 
-  const firstDeleteStarted = new Promise((resolve) => {
-    service.delete = async (_interaction, ticket) => {
-      if (ticket.status === "deleted") return { started: false };
-      return {
-        started: true,
-        start: () => {
-          resolve();
-          return new Promise(() => {});
-        },
-      };
+  let signalFirstDeleteStarted;
+  let releaseFirstDelete;
+  const firstDeleteStarted = new Promise((resolve) => { signalFirstDeleteStarted = resolve; });
+  const firstDeleteDone = new Promise((resolve) => { releaseFirstDelete = resolve; });
+
+  service.delete = async (_interaction, ticket) => {
+    if (ticket.status === "deleted") return { started: false };
+    return {
+      started: true,
+      start: () => {
+        signalFirstDeleteStarted();
+        return firstDeleteDone;
+      },
     };
-  });
-  // The promise above captures the first start; the second invocation returns already-deleted.
+  };
+
   const firstRun = handleInteraction(interactions[0], { service, ui: {} });
   await firstDeleteStarted;
+
   const secondRun = handleInteraction(interactions[1], { service, ui: {} });
   await secondRun;
 
-  assert.equal(interactions[0].editReplyPayloads?.some((payload) => JSON.stringify(payload.components?.map((x) => x.toJSON())).includes("Deleting Ticket")), true);
-  assert.equal(interactions[1].editReplyPayloads?.some((payload) => JSON.stringify(payload.components?.map((x) => x.toJSON())).includes("already been deleted")), true);
+  assert.equal(
+    interactions[0].editReplyPayloads?.some((payload) => JSON.stringify(payload.components?.map((x) => x.toJSON())).includes("Deleting Ticket")),
+    true,
+  );
+  assert.equal(
+    interactions[1].editReplyPayloads?.some((payload) => JSON.stringify(payload.components?.map((x) => x.toJSON())).includes("already been deleted")),
+    true,
+  );
 
-  // End the intentionally blocked first deletion by leaving its promise unresolved; no await here.
-  void firstRun;
+  releaseFirstDelete();
+  await firstRun;
 });
 
 
