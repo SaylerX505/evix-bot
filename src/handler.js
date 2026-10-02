@@ -251,9 +251,12 @@ export async function handleInteraction(interaction, { service, ui }) {
         const ticket = await service.getTicket(interaction, ticketId);
         const canManage = service.canManageTicket(interaction.member, ticket);
         const canClose = service.canClose(interaction.member, ticket);
-        if (!canManage && !((action === "keep-open") && canClose)) {
-          throw new Error("You are not authorized to confirm this action.");
+        if (action === "keep-open" || action === "cancel") {
+          if (!canManage && !canClose) throw new Error("You are not authorized to dismiss this confirmation.");
+          return;
         }
+
+        throw new Error("Unsupported confirmation action.");
       } catch (error) {
         const normalized = normalizeError(error);
         logInteractionError(interaction, normalized, error);
