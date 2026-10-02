@@ -277,7 +277,7 @@ const MIGRATIONS = [
         UPDATE tickets
         SET claimed_by = NULL,
             claimed_at = NULL
-        WHERE status <> 'open';
+        WHERE status IS DISTINCT FROM 'open';
 
         UPDATE tickets
         SET ticket_key = CASE
