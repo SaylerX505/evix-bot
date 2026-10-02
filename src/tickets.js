@@ -1,5 +1,5 @@
 import { ChannelType, MessageFlags, PermissionFlagsBits } from "discord.js";
-import { addTicketEvent, addTicketMember, countOpenTickets, createTicket, getGuildSettings, getOpenTicketForUser, getTicketByChannel, getTicketById, listTicketMembers, removeTicketMember, updateTicket, withTicketActionLock } from "./db.js";
+import { addTicketEvent, addTicketMember, createTicket, getGuildSettings, getOpenTicketForUser, getTicketByChannel, getTicketById, listTicketMembers, removeTicketMember, updateTicket, withTicketActionLock } from "./db.js";
 import { writeTicketLog } from "./logs.js";
 import { buildActionResult, buildClaimResult, buildClosedTicketView, buildDeleteConfirmation, buildInfoView, buildTicketView, buildCloseConfirmation } from "./ui.js";
 import { buildTranscript, transcriptAttachment } from "./transcript.js";
@@ -96,12 +96,7 @@ export class TicketService {
     const categoryIds = categoryCandidates(primaryCategory, settings.backup_category_id);
     if (!primaryCategory) throw new Error("Configure the main Tickets category with /ticket setup before opening tickets.");
 
-    if (!option.allow_multiple) {
-      const existing = await getOpenTicketForUser(interaction.guildId, interaction.user.id, option.id);
-      if (existing) return respond(interaction, ephemeral("You already have an open " + option.label + " ticket: <#" + existing.channel_id + ">"));
-    }
     const limit = Number(settings.default_ticket_limit ?? 1);
-    if (await countOpenTickets(interaction.guildId, interaction.user.id) >= limit) throw new Error("You have reached the open ticket limit (" + limit + ").");
 
     const optionFields = validateModalFields(option.modal_fields ?? []);
     const formText = Object.entries(formValues).filter(([, value]) => String(value ?? "").trim()).map(([fieldId, value]) => {
