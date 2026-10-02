@@ -195,6 +195,44 @@ test("delete confirmation shows progress before the channel deletion starts", as
   await running;
 });
 
+test("concurrent delete confirmations do not wait for the first Discord channel deletion", async () => {
+  const interactions = [
+    makeButton("evix:confirm:42:delete"),
+    makeButton("evix:confirm:42:delete"),
+  ];
+  let first = true;
+  let resolveFirstDelete;
+  const firstDeleteDone = new Promise((resolve) => { resolveFirstDelete = resolve; });
+  const states = ["closed", "deleted"];
+  const service = serviceFor({ id: 42, owner_id: "owner", status: "closed", staff_roles: [] });
+  service.getTicket = async () => ({ ...service.getTicket.current, status: states.shift() ?? "deleted" });
+  service.getTicket.current = service.getTicket.current || { id: 42, owner_id: "owner", status: "closed", staff_roles: [] };
+  service.canManageTicket = () => true;
+  service.delete = async (_interaction, ticket) => {
+    if (ticket.status === "deleted") return { started: false };
+    return {
+      started: true,
+      start: async () => {
+        if (first) {
+          first = false;
+          await firstDeleteDone;
+        }
+      },
+    };
+  };
+
+  const firstRun = handleInteraction(interactions[0], { service, ui: {} });
+  await new Promise((resolve) => setImmediate(resolve));
+  const secondRun = handleInteraction(interactions[1], { service, ui: {} });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(interactions[0].calls.includes("editReply"), true);
+  assert.equal(interactions[1].calls.includes("editReply"), true);
+
+  resolveFirstDelete();
+  await Promise.all([firstRun, secondRun]);
+});
+
 test("ticket confirmation success followups keep Components V2 and Ephemeral flags", async () => {
   for (const action of ["close", "delete"]) {
     const interaction = makeButton("evix:confirm:42:" + action);
