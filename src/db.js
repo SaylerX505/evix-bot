@@ -2,7 +2,7 @@ import { closePool, getPool, initPool } from "./db/connection.js";
 import { runMigrations } from "./db/schema.js";
 import { clearSettingsCache } from "./db/settings.js";
 import { clearPanelCaches } from "./db/panels.js";
-import { clearTicketMemory } from "./db/tickets.js";
+import { clearTicketActionLocks } from "./db/tickets.js";
 
 export { getPool };
 export { withTicketActionLock } from "./db/tickets.js";
@@ -61,5 +61,5 @@ export async function closeDatabase() {
 function clearCaches() {
   clearSettingsCache();
   clearPanelCaches();
-  clearTicketMemory();
+  clearTicketActionLocks();
 }
