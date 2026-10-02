@@ -113,11 +113,11 @@ export async function getCached(cache, key, loader) {
   const hit = cache.get(key);
   if (hit !== undefined) return hit;
 
-  return singleFlight(cache.name + ":" + key, async () => {
+  const generation = cache.generation(key);
+  return singleFlight(cache.name + ":" + key + ":" + generation, async () => {
     const secondHit = cache.get(key);
     if (secondHit !== undefined) return secondHit;
 
-    const generation = cache.generation(key);
     const value = await loader();
     cache.setIfGeneration(key, value, generation);
     return structuredClone(value);
