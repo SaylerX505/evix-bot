@@ -158,7 +158,7 @@ export class TicketService {
 
     const welcome = [pingRoles.length ? pingRoles.map((id) => "<@&" + id + ">").join(" ") : "", storedWelcome].filter(Boolean).join("\n");
     const view = buildTicketView(ticket, { ...option, welcome_message: welcome });
-    view.allowedMentions = { parse: [], roles: pingRoles, users: [interaction.user.id] };
+    view.allowedMentions = { parse: [], roles: unique(pingRoles), users: unique([interaction.user.id]) };
     try {
       const controlMessage = await channel.send(view);
       const withControl = await updateTicket(ticket.id, { control_message_id: controlMessage.id });
