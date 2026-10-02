@@ -27,7 +27,7 @@ PostgreSQL remains the source of truth for mutable ticket state. Memory is used 
 
 ## Test-first work
 
-1. Add regression tests for settings partial UPSERT/concurrency, cache hit/invalidation, single-flight reads, ticket-channel index behavior, event ordering, and migration versioning.
+1. Add regression tests for settings partial UPSERT/concurrency, cache hit/invalidation, single-flight reads, event ordering, and migration versioning.
 2. Add ticket-channel naming regressions proving creation uses the final name and close/reopen do not rename.
 3. Add any DB boundary tests needed for new module contracts.
 4. Verify the new tests fail against the current implementation where expected.
@@ -49,7 +49,7 @@ PostgreSQL remains the source of truth for mutable ticket state. Memory is used 
 
 - Guild settings: bounded TTL cache + immediate invalidation after successful write.
 - Panel configuration: bounded TTL cache + invalidation after panel/option mutation.
-- Live ticket channel lookup: bounded in-process index for known ticket channels and negative routing fast-path where safe.
+- Mutable ticket rows are deliberately not cached. Ticket routing and authorization use fresh PostgreSQL reads; this avoids stale-state risk without reducing the DB reads that valid mutation paths already require.
 - Single-flight identical reads so concurrent requests share one DB query.
 - Cache values are copied before returning so callers cannot mutate cached state.
 - No broad mutable-ticket-row cache for authorization/mutations; those paths keep fresh DB reads.
