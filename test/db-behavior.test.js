@@ -31,6 +31,13 @@ test("guild settings patch is a single atomic database write", async () => {
   };
 
   pg.Pool.prototype.end = async function() {};
+  pg.Pool.prototype.connect = async function() {
+    return {
+      query: async () => ({ rows: [] }),
+      release() {},
+    };
+  };
+
 
   try {
     await initDatabase("postgres://evix:test@localhost/evix");
