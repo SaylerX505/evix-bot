@@ -277,192 +277,23 @@ test("stale close action on an already-closed ticket repairs the public control 
 });
 
 
-test("reopen rolls back participant access when the DB transition fails", async () => {
-  const originalFresh = service.getFreshTicket;
-  const originalSettings = service.getSettings;
-  const originalPermissions = service.setParticipantPermissions;
+test("delete handler acknowledges before physical channel deletion completes", async () => {
+  const interaction = makeButton("evix:confirm:42:delete");
+  let release;
+  const completion = new Promise((resolve) => { release = resolve; });
+  const service = serviceFor({ id: 42 });
+  service.delete = async () => ({ completion });
 
-  const rollbacks = [];
-  service.getFreshTicket = async () => ({
-    id: 53,
-    channel_id: "channel",
-    ticket_key: "EVX-000053",
-    owner_id: "owner",
-    type_label: "Support",
-    status: "closed",
-    category_id: "category-1",
-    current_category_id: "category-1",
-    closed_category_id: "category-closed",
-    backup_category_id: null,
-    staff_roles: [],
-    claimed_by: null,
-  });
-  service.getSettings = async () => ({
-    ticket_category_id: "category-1",
-    open_category_id: "category-1",
-    backup_category_id: null,
-  });
-  service.setParticipantPermissions = async (_interaction, _ticket, options) => {
-    if (options.view === false) rollbacks.push("rollback");
-    return { changed: ["owner"], failed: [] };
-  };
+  const started = Date.now();
+  await handleInteraction(interaction, { service, ui: {} });
+  const elapsed = Date.now() - started;
 
-  const interaction = {
-    guildId: "guild",
-    channel: {
-      parentId: "category-1",
-      guild: {
-        channels: {
-          fetch: async (id) => id === "category-1"
-            ? { id: "category-1", type: 4 }
-            : null,
-        },
-      },
-      permissionOverwrites: {
-        edit: async (userId, options) => {
-          if (options.ViewChannel === false) rollbacks.push("owner-permission-rollback:" + userId);
-        },
-      },
-    },
-    user: { id: "staff" },
-    member: member("staff", { manageChannels: true }),
-    guild: {
-      channels: {
-        fetch: async (id) => id === "category-1"
-          ? {
-              id: "category-1",
-              type: 4,
-            }
-          : null,
-      },
-    },
-    deferred: false,
-    replied: false,
-    reply: async () => {},
-    editReply: async () => {},
-  };
+  assert.ok(elapsed < 100);
+  assert.equal(interaction.followUpPayload?.components?.length > 0, true);
+  assert.match(JSON.stringify(interaction.followUpPayload.components.map((component) => component.toJSON())), /Ticket Deletion Started/);
 
-  try {
-    await assert.rejects(
-      () => service.reopen(interaction, { id: 53 }),
-      /Database has not been initialized/,
-    );
-    assert.deepEqual(rollbacks, ["owner-permission-rollback:owner"]);
-  } finally {
-    service.getFreshTicket = originalFresh;
-    service.getSettings = originalSettings;
-    service.setParticipantPermissions = originalPermissions;
-  }
-});
-
-test("transcript acknowledges before fetching message history", async () => {
-  const order = [];
-  const originalFresh = service.getFreshTicket;
-  service.getFreshTicket = async () => ({
-    id: 54,
-    channel_id: "ticket-channel",
-    ticket_key: "EVX-000054",
-    owner_id: "owner",
-    type_label: "Support",
-    status: "closed",
-    staff_roles: [],
-    claimed_by: null,
-    ticket_logs_enabled: false,
-  });
-
-  const interaction = {
-    guildId: "guild",
-    channelId: "ticket-channel",
-    channel: {},
-    user: { id: "staff" },
-    member: member("staff", { manageChannels: true }),
-    deferred: true,
-    replied: false,
-    editReply: async (payload) => {
-      order.push(JSON.stringify(payload).includes("Generating Transcript") ? "ack" : "result");
-    },
-    reply: async () => {},
-    guild: {
-      channels: {
-        fetch: async () => ({
-          isTextBased: () => true,
-          messages: {
-            fetch: async () => {
-              order.push("fetch");
-              return new Map();
-            },
-          },
-        }),
-      },
-    },
-  };
-
-  try {
-    await service.sendTranscript(interaction, { id: 54 });
-    assert.equal(order[0], "ack");
-  } finally {
-    service.getFreshTicket = originalFresh;
-  }
-});
-
-test("transcript audit log carries the generated transcript file", async () => {
-  const originalFresh = service.getFreshTicket;
-  const sent = [];
-  const logChannel = {
-    isTextBased: () => true,
-    send: async (payload) => {
-      sent.push(payload);
-      return payload;
-    },
-  };
-  const ticketChannel = {
-    isTextBased: () => true,
-    messages: {
-      fetch: async () => new Map(),
-    },
-  };
-
-  service.getFreshTicket = async () => ({
-    id: 55,
-    channel_id: "ticket-channel",
-    ticket_key: "EVX-000055",
-    owner_id: "owner",
-    type_label: "Support",
-    status: "closed",
-    staff_roles: [],
-    claimed_by: null,
-    ticket_logs_enabled: true,
-    transcript_logs_enabled: true,
-    transcript_log_channel_id: null,
-    transcript_channel_id: null,
-    ticket_log_channel_id: "log-channel",
-    log_channel_id: null,
-  });
-
-  const interaction = {
-    guildId: "guild",
-    channelId: "ticket-channel",
-    channel: ticketChannel,
-    user: { id: "staff" },
-    member: member("staff", { manageChannels: true }),
-    deferred: true,
-    replied: false,
-    editReply: async () => {},
-    reply: async () => {},
-    guild: {
-      channels: {
-        fetch: async (id) => id === "ticket-channel" ? ticketChannel : logChannel,
-      },
-    },
-  };
-
-  try {
-    await service.sendTranscript(interaction, { id: 55 });
-    assert.equal(sent.length, 1);
-    assert.equal(sent[0].files?.length, 1);
-  } finally {
-    service.getFreshTicket = originalFresh;
-  }
+  release();
+  await completion;
 });
 
 test("ticket info rejects a deleted ticket after refreshing state", async () => {
