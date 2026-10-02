@@ -55,6 +55,13 @@ export class MemoryCache {
     this.entries.delete(normalizedKey);
   }
 
+  deleteWhere(predicate) {
+    for (const [key, record] of this.entries) {
+      if (!predicate(record.value, key)) continue;
+      this.invalidate(key);
+    }
+  }
+
   generation(key) {
     return this.generations.get(String(key)) ?? 0;
   }
