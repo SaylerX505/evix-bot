@@ -620,7 +620,7 @@ export class TicketService {
     const deleted = await updateTicket(
       ticket.id,
       { status: "deleted", deleted_at: new Date() },
-      { statuses: ["open", "locked", "closed"] },
+      { statuses: ["open", "closed"] },
     );
     if (!deleted) throw new Error("This ticket was changed by another action.");
 
