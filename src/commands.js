@@ -85,7 +85,6 @@ const panelCommand = new SlashCommandBuilder()
     .addRoleOption((o) => o.setName("ping_roles").setDescription("Optional role to ping when a ticket is created"))
     .addStringOption((o) => o.setName("close_behavior").setDescription("Optional close routing behavior").addChoices({ name: "Move", value: "move" }, { name: "Stay", value: "stay" }))
     .addBooleanOption((o) => o.setName("allow_multiple").setDescription("Allow multiple active tickets of this option"))
-    .addBooleanOption((o) => o.setName("transcript_on_close").setDescription("Create a transcript on close")))
   .addSubcommand((s) => s.setName("option-edit").setDescription("Edit a ticket option")
     .addStringOption((o) => o.setName("panel").setDescription("Select a panel").setRequired(true).setAutocomplete(true))
     .addStringOption((o) => o.setName("option").setDescription("Select an option").setRequired(true).setAutocomplete(true))
@@ -138,8 +137,8 @@ export async function handleTicketCommand(interaction, service, ui) {
     const ticketsCategory = interaction.options.getChannel("tickets_category", true);
     const saved = await upsertGuildSettings(interaction.guildId, {
       ticket_category_id: ticketsCategory.id,
-      backup_category_id: interaction.options.getChannel("backup_category")?.id,
-      closed_category_id: interaction.options.getChannel("closed_category")?.id,
+      backup_category_id: interaction.options.getChannel("backup_category")?.id ?? null,
+      closed_category_id: interaction.options.getChannel("closed_category")?.id ?? null,
       default_ticket_limit: interaction.options.getInteger("ticket_limit") ?? undefined,
     });
     return respond(interaction, { ...ui.buildSetupSummary(saved), flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2 });
