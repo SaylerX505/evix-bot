@@ -2,7 +2,7 @@ import { ChannelType, MessageFlags, PermissionFlagsBits } from "discord.js";
 import { addTicketEvent, addTicketMember, createTicket, getGuildSettings, getOpenTicketForUser, getTicketByChannel, getTicketById, listTicketMembers, removeTicketMember, updateTicket, withTicketActionLock } from "./db.js";
 import { writeTicketLog } from "./logs.js";
 import { buildActionResult, buildClaimResult, buildClosedTicketView, buildDeleteConfirmation, buildInfoView, buildTicketView, buildCloseConfirmation } from "./ui.js";
-import { buildTranscript } from "./transcript.js";
+import { buildTranscript, transcriptAttachment } from "./transcript.js";
 import { transitionTicket } from "./state.js";
 import { categoryCandidates, findTicketCreationCategory, findTicketReopenCategory, moveTicketChannel } from "./routing.js";
 import { formatDuration, isStaff, renderTemplate, sanitizeChannelName, unique, validateModalFields } from "./utils.js";
@@ -845,16 +845,50 @@ export class TicketService {
     if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
     const channel = await interaction.guild.channels.fetch(ticket.channel_id).catch(() => null);
     if (!channel?.isTextBased?.()) throw new Error("The ticket channel is no longer available.");
+
+    await respond(
+      interaction,
+      buildActionResult(
+        "Generating Transcript",
+        "The transcript is being generated. Your file will appear here and in the configured transcript log.",
+      ),
+    );
+
     const transcript = await queueTicketTranscript(
       ticket.id,
       () => buildTranscript(channel, ticket),
     );
-    await respond(interaction, { ...buildActionResult("Transcript Ready", "Transcript generated for `" + ticket.ticket_key + "`."), files: [transcriptAttachment(transcript.buffer, transcript.fileName)], flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral });
+
+    const userAttachment = transcriptAttachment(
+      Buffer.from(transcript.buffer),
+      transcript.fileName,
+    );
+    const logAttachment = transcriptAttachment(
+      Buffer.from(transcript.buffer),
+      transcript.fileName,
+    );
+
+    await interaction.editReply({
+      ...buildActionResult(
+        "Transcript Ready",
+        "Transcript generated for " + ticket.ticket_key + ".",
+      ),
+      files: [userAttachment],
+      flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+    });
+
     void addTicketEvent(ticket.id, "TRANSCRIPT_CREATED", interaction.user.id, {
       messages: transcript.messageCount,
       channel: interaction.channel.id,
     }).catch((error) => console.error("[evix-ticket-transcript-event-error]", error));
-    void writeTicketLog(interaction.guild, ticket, "TRANSCRIPT_CREATED", interaction.user.id, { messages: transcript.messageCount })
-      .catch((error) => console.error("[evix-ticket-transcript-log-error]", error));
+
+    void writeTicketLog(
+      interaction.guild,
+      ticket,
+      "TRANSCRIPT_CREATED",
+      interaction.user.id,
+      { messages: transcript.messageCount },
+      [logAttachment],
+    ).catch((error) => console.error("[evix-ticket-transcript-log-error]", error));
   }
 }
