@@ -305,7 +305,7 @@ export async function handleInteraction(interaction, { service, ui }) {
         case "claim": return await mutate(() => service.claim(interaction, ticket));
         case "unclaim": return await mutate(() => service.unclaim(interaction, ticket));
         case "reopen": return await mutate(() => service.reopen(interaction, ticket));
-        case "transcript": return await mutate(() => service.sendTranscript(interaction, ticket));
+        case "transcript": return await service.sendTranscript(interaction, ticket);
         default: throw new Error("Unsupported ticket control.");
       }
     }
