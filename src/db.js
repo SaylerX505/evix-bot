@@ -151,11 +151,6 @@ export async function initDatabase(databaseUrl) {
     CREATE INDEX IF NOT EXISTS ticket_events_ticket_idx ON ticket_events (ticket_id, created_at);
   `);
 
-  const { rows: indexedChannels } = await pool.query("SELECT channel_id FROM tickets WHERE status IN ('open','closed')");
-  ticketChannelIndex.clear();
-  for (const row of indexedChannels) ticketChannelIndex.add(String(row.channel_id));
-  ticketChannelIndexReady = true;
-
   await pool.query(`
     ALTER TABLE guild_ticket_settings ADD COLUMN IF NOT EXISTS ticket_category_id TEXT;
     ALTER TABLE guild_ticket_settings ADD COLUMN IF NOT EXISTS backup_category_id TEXT;
@@ -245,6 +240,11 @@ export async function initDatabase(databaseUrl) {
 
     CREATE INDEX IF NOT EXISTS ticket_events_ticket_idx ON ticket_events (ticket_id, created_at);
   `);
+
+  const { rows: indexedChannels } = await pool.query("SELECT channel_id FROM tickets WHERE status IN ('open','closed')");
+  ticketChannelIndex.clear();
+  for (const row of indexedChannels) ticketChannelIndex.add(String(row.channel_id));
+  ticketChannelIndexReady = true;
 }
 
 export async function closeDatabase() {
