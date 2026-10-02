@@ -62,6 +62,46 @@ test("control refresh requires fresh ticket state and does not trust stale input
   }
 });
 
+test("post-mutation control refresh may use only the explicitly trusted state on DB read failure", async () => {
+  const originalFresh = service.getFreshTicket;
+  service.getFreshTicket = async () => { throw new Error("database unavailable"); };
+  const edited = [];
+  const ticket = {
+    id: 54,
+    channel_id: "channel",
+    control_message_id: "control",
+    ticket_key: "EVX-000054",
+    owner_id: "owner",
+    type_label: "Support",
+    status: "closed",
+    closed_by: "staff",
+    staff_roles: [],
+  };
+  const interaction = {
+    guildId: "guild",
+    guild: {
+      channels: {
+        fetch: async () => ({
+          isTextBased: () => true,
+          messages: {
+            fetch: async () => ({ edit: async (payload) => edited.push(payload) }),
+          },
+        }),
+      },
+    },
+  };
+
+  try {
+    await service.refreshControlMessage(interaction, ticket, { replace: false, fallbackToKnownState: true });
+    assert.equal(edited.length, 1);
+    const rendered = JSON.stringify(edited[0].components.map((component) => component.toJSON()));
+    assert.match(rendered, /Get Transcript/);
+    assert.doesNotMatch(rendered, /evix:t:54:claim|evix:t:54:close|evix:t:54:info/);
+  } finally {
+    service.getFreshTicket = originalFresh;
+  }
+});
+
 test("control refresh propagates fresh ticket lookup failures", async () => {
   const originalFresh = service.getFreshTicket;
   service.getFreshTicket = async () => { throw new Error("database unavailable"); };
