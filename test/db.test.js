@@ -14,6 +14,13 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
     return { rows: [] };
   };
   pg.Pool.prototype.end = async function() {};
+  pg.Pool.prototype.connect = async function() {
+    return {
+      query: async () => ({ rows: [] }),
+      release() {},
+    };
+  };
+
 
   try {
     await initDatabase("postgres://evix:test@localhost/evix");
