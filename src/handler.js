@@ -189,13 +189,6 @@ export async function handleInteraction(interaction, { service, ui }) {
       deferredComponentUpdate = true;
 
       try {
-        const ticket = await service.getTicket(interaction, ticketId);
-        const canManage = service.canManageTicket(interaction.member, ticket);
-        const canClose = service.canClose(interaction.member, ticket);
-        if (!canManage && !((action === "close" || action === "keep-open") && canClose)) {
-          throw new Error("You are not authorized to confirm this action.");
-        }
-
         if (action === "keep-open" || action === "cancel") {
           await interaction.deleteReply().catch(() => null);
           return;
@@ -204,8 +197,8 @@ export async function handleInteraction(interaction, { service, ui }) {
         await interaction.deleteReply().catch(() => null);
 
         if (action === "close") {
-          await service.withTicketActionLock(ticket.id, () =>
-            service.close(interaction, ticket, { reply: false, closedBy: interaction.user.id }),
+          await service.withTicketActionLock(ticketId, () =>
+            service.close(interaction, { id: ticketId }, { reply: false, closedBy: interaction.user.id }),
           );
           await interaction.followUp({
             ...buildActionResult("Ticket Closed", "This ticket has been closed by <@" + interaction.user.id + ">."),
@@ -214,7 +207,7 @@ export async function handleInteraction(interaction, { service, ui }) {
           return;
         }
 
-        await service.withTicketActionLock(ticket.id, () => service.delete(interaction, ticket));
+        await service.withTicketActionLock(ticketId, () => service.delete(interaction, { id: ticketId }));
         await interaction.followUp({
           ...buildActionResult("Ticket Deleted", "This ticket has been permanently deleted."),
           flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
@@ -227,8 +220,7 @@ export async function handleInteraction(interaction, { service, ui }) {
           ...buildErrorResult(normalized),
           flags: MessageFlags.Ephemeral,
         }).catch(() => null);
-      }
-      return;
+      }      return;
     }
 
     if (interaction.isButton() && interaction.customId.startsWith("evix:t:")) {
