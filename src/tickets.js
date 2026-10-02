@@ -10,6 +10,17 @@ import { formatDuration, isStaff, renderTemplate, sanitizeChannelName, unique, v
 const BOT_PERMISSIONS = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels];
 
 const ticketControlRefreshes = new Map();
+const ticketChannelNameChanges = new Map();
+
+function queueTicketChannelName(ticketId, callback) {
+  const key = String(ticketId);
+  const previous = ticketChannelNameChanges.get(key) ?? Promise.resolve();
+  const next = previous.catch(() => null).then(callback);
+  ticketChannelNameChanges.set(key, next);
+  return next.finally(() => {
+    if (ticketChannelNameChanges.get(key) === next) ticketChannelNameChanges.delete(key);
+  });
+}
 
 function queueTicketControlRefresh(ticketId, callback) {
   const key = String(ticketId);
@@ -32,6 +43,7 @@ function statusName(status, ticketKey) { return status === "open" ? "ticket-" + 
 export class TicketService {
   constructor(client) { this.client = client; }
   withTicketActionLock(ticketId, callback) { return withTicketActionLock(ticketId, callback); }
+  queueChannelName(ticketId, callback) { return queueTicketChannelName(ticketId, callback); }
 
   async getSettings(guildId) {
     return (await getGuildSettings(guildId)) ?? {
@@ -403,7 +415,7 @@ export class TicketService {
       }
     }
 
-    void interaction.channel.setName(statusName("closed", next.ticket_key)).catch((error) => {
+    void this.queueChannelName(next.id, () => interaction.channel.setName(statusName("closed", next.ticket_key))).catch((error) => {
       console.error("[evix-close-channel-rename-error]", error);
     });
 
@@ -556,7 +568,7 @@ export class TicketService {
       throw new Error("This ticket was changed by another action. Please try again.");
     }
 
-    void interaction.channel.setName(statusName("open", next.ticket_key)).catch((error) => {
+    void this.queueChannelName(next.id, () => interaction.channel.setName(statusName("open", next.ticket_key))).catch((error) => {
       console.error("[evix-reopen-channel-rename-error]", error);
     });
     await respond(interaction, buildActionResult("Ticket Reopened", "This ticket is open again and ready for handling."));
@@ -577,7 +589,7 @@ export class TicketService {
     const safe = sanitizeChannelName(name);
     if (!safe) throw new Error("The ticket name cannot be empty.");
     const finalName = statusName(ticket.status, safe);
-    await interaction.channel.setName(finalName);
+    await this.queueChannelName(ticket.id, () => interaction.channel.setName(finalName));
     await respond(interaction, buildActionResult("Ticket Renamed", "The ticket channel is now `" + finalName + "`."));
     void addTicketEvent(ticket.id, "TICKET_RENAMED", interaction.user.id, { name: safe })
       .catch((error) => console.error("[evix-ticket-rename-event-error]", error));
