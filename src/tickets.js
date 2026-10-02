@@ -98,7 +98,7 @@ export class TicketService {
   async createFromOption(interaction, option, formValues = {}) {
     if (option.action === "NOTHING") throw new Error("This option does not create a ticket.");
     const settings = await this.getSettings(interaction.guildId);
-    const primaryCategory = option.category_id || settings.ticket_category_id || settings.open_category_id;
+    const primaryCategory = option.category_id || settings.ticket_category_id;
     const categoryIds = categoryCandidates(primaryCategory, settings.backup_category_id);
     if (!primaryCategory) throw new Error("Configure the main Tickets category with /ticket setup before opening tickets.");
 
@@ -163,9 +163,9 @@ export class TicketService {
         guildId: interaction.guildId, panelId: option.panel_id, optionId: option.id, channelId: channel.id, ownerId: interaction.user.id,
         typeLabel: option.label, categoryId: actualCategoryId, closedCategoryId: option.closed_category_id || settings.closed_category_id,
         staffRoles, pingRoles, dedupeKey: option.allow_multiple ? null : interaction.guildId + ":" + interaction.user.id + ":" + option.id,
-        logChannelId: option.log_channel_id || settings.ticket_log_channel_id || settings.log_channel_id,
+        logChannelId: option.log_channel_id || settings.ticket_log_channel_id,
         moderationLogChannelId: option.moderation_log_channel_id || settings.moderation_log_channel_id,
-        transcriptChannelId: option.transcript_channel_id || settings.transcript_log_channel_id || settings.transcript_channel_id,
+        transcriptChannelId: option.transcript_channel_id || settings.transcript_log_channel_id,
         ticketLogsEnabled: settings.ticket_logs_enabled !== false, moderationLogsEnabled: settings.moderation_logs_enabled !== false, transcriptLogsEnabled: settings.transcript_logs_enabled !== false,
         ticketLimit: limit, welcomeMessage: storedWelcome, closeBehavior: option.close_behavior || "move",
       });
@@ -515,7 +515,7 @@ export class TicketService {
 
     const settings = await this.getSettings(interaction.guildId);
     const candidates = categoryCandidates(
-      ticket.category_id || settings.ticket_category_id || settings.open_category_id,
+      ticket.category_id || settings.ticket_category_id,
       settings.backup_category_id,
     );
     const previousCategoryId = interaction.channel.parentId || ticket.current_category_id || ticket.category_id || null;
