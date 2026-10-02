@@ -497,19 +497,39 @@ export class TicketService {
       throw new Error("Ticket reopen routing failed: " + (error?.message || "ticket category unavailable"));
     }
 
-    const next = await updateTicket(
-      ticket.id,
-      {
-        status: "open",
-        reopened_at: new Date(),
-        closed_at: null,
-        closed_by: null,
-        claimed_by: null,
-        claimed_at: null,
-        current_category_id: target.category.id,
-      },
-      { statuses: ["closed"] },
-    );
+    let next;
+    try {
+      next = await updateTicket(
+        ticket.id,
+        {
+          status: "open",
+          reopened_at: new Date(),
+          closed_at: null,
+          closed_by: null,
+          claimed_by: null,
+          claimed_at: null,
+          current_category_id: target.category.id,
+        },
+        { statuses: ["closed"] },
+      );
+    } catch (error) {
+      if (String(target.category.id) !== String(previousCategoryId || "")) {
+        await moveTicketChannel(interaction.channel, previousCategoryId).catch(() => null);
+      }
+      if (permissions.changed.length) {
+        await Promise.all(
+          permissions.changed.map((userId) =>
+            interaction.channel.permissionOverwrites.edit(userId, {
+              ViewChannel: false,
+              SendMessages: false,
+              ReadMessageHistory: false,
+            }).catch(() => null),
+          ),
+        );
+      }
+      throw error;
+    }
+
     if (!next) {
       if (String(target.category.id) !== String(previousCategoryId || "")) {
         await moveTicketChannel(interaction.channel, previousCategoryId).catch(() => null);
