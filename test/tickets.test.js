@@ -148,3 +148,41 @@ test("stale close action on an already-closed ticket repairs the public control 
   service.refreshControlMessage = originalRefresh;
   service.getFreshTicket = originalFreshTicket;
 });
+
+
+test("ticket info rejects a deleted ticket after refreshing state", async () => {
+  const originalFresh = service.getFreshTicket;
+  service.getFreshTicket = async () => ({ id: 50, owner_id: "owner", status: "deleted", staff_roles: [] });
+
+  const interaction = {
+    guildId: "guild",
+    user: { id: "owner" },
+    member: member("owner"),
+  };
+
+  await assert.rejects(
+    () => service.info(interaction, { id: 50 }),
+    /deleted/,
+  );
+
+  service.getFreshTicket = originalFresh;
+});
+
+test("ticket role management rejects a deleted ticket after refreshing state", async () => {
+  const originalFresh = service.getFreshTicket;
+  service.getFreshTicket = async () => ({ id: 51, owner_id: "owner", status: "deleted", staff_roles: [] });
+
+  const interaction = {
+    guildId: "guild",
+    user: { id: "staff" },
+    member: member("staff", { manageChannels: true }),
+  };
+
+  await assert.rejects(
+    () => service.addRole(interaction, { id: 51 }, "role"),
+    /deleted/,
+  );
+
+  service.getFreshTicket = originalFresh;
+});
+
