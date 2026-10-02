@@ -117,6 +117,8 @@ test("closed ticket refresh always renders the closed control view", async () =>
 test("stale close action on an already-closed ticket repairs the public control view", async () => {
   const refreshed = [];
   const originalRefresh = service.refreshControlMessage;
+  const originalFreshTicket = service.getFreshTicket;
+  service.getFreshTicket = async (_interaction, ticket) => ticket;
   service.refreshControlMessage = async (_interaction, ticket, options) => {
     refreshed.push({ ticket, options });
   };
@@ -144,4 +146,5 @@ test("stale close action on an already-closed ticket repairs the public control 
   assert.deepEqual(refreshed[0].options, { closed: true, closedBy: "staff" });
   assert.equal(interaction.replied, true);
   service.refreshControlMessage = originalRefresh;
+  service.getFreshTicket = originalFreshTicket;
 });
