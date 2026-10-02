@@ -39,17 +39,26 @@ export async function handleInteraction(interaction, { service, ui }) {
 
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === "panel") {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        const sub = interaction.options.getSubcommand();
+        const usesV2 = ["create", "edit"].includes(sub);
+        await interaction.deferReply({
+          flags: usesV2
+            ? MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral
+            : MessageFlags.Ephemeral,
+        });
         await handlePanelCommand(interaction, ui);
         return;
       }
       if (interaction.commandName === "ticket") {
         const sub = interaction.options.getSubcommand();
-        if (["setup", "config", "logs", "close", "delete", "transcript"].includes(sub)) {
-          await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        } else if (["info", "claim", "unclaim", "reopen", "add", "remove", "rename"].includes(sub)) {
-          await interaction.deferReply();
-        }
+        const normalEphemeral = ["logs"].includes(sub);
+        const ephemeralV2 = ["setup", "config", "close", "delete", "transcript"].includes(sub);
+        const flags = ephemeralV2
+          ? MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral
+          : normalEphemeral
+            ? MessageFlags.Ephemeral
+            : MessageFlags.IsComponentsV2;
+        await interaction.deferReply({ flags });
         await handleTicketCommand(interaction, service, ui);
       }
       return;
@@ -79,7 +88,7 @@ export async function handleInteraction(interaction, { service, ui }) {
     if (interaction.isModalSubmit() && interaction.customId.startsWith("evix:modal:")) {
       const match = interaction.customId.match(/^evix:modal:(\d+)$/);
       if (!match) throw new Error("Invalid ticket form.");
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral });
       const option = await getPanelOption(match[1], interaction.guildId);
       if (!option) throw new Error("This ticket form is no longer available.");
       const fields = validateModalFields(option.modal_fields ?? []);
@@ -171,7 +180,7 @@ export async function handleInteraction(interaction, { service, ui }) {
     if (interaction.isModalSubmit() && interaction.customId.startsWith("evix:rename:")) {
       const match = interaction.customId.match(/^evix:rename:(\d+)$/);
       if (!match) throw new Error("Invalid rename form.");
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      await interaction.deferReply({ flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral });
       const ticket = await service.getTicket(interaction, match[1]);
       await service.withTicketActionLock(ticket.id, () =>
         service.rename(interaction, ticket, interaction.fields.getTextInputValue("name")),
@@ -229,9 +238,9 @@ export async function handleInteraction(interaction, { service, ui }) {
       const [, ticketId, action] = match;
 
       {
-        const ephemeralActions = new Set(["close", "delete", "transcript"]);
+        const ephemeral = new Set(["close", "delete", "transcript"]).has(action);
         await interaction.deferReply({
-          flags: ephemeralActions.has(action) ? MessageFlags.Ephemeral : 0,
+          flags: MessageFlags.IsComponentsV2 | (ephemeral ? MessageFlags.Ephemeral : 0),
         });
       }
 
