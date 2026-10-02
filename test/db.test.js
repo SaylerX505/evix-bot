@@ -7,6 +7,7 @@ test("database patch builders ignore undefined values but preserve explicit null
   const queries = [];
   const originalQuery = pg.Pool.prototype.query;
   const originalEnd = pg.Pool.prototype.end;
+  const originalConnect = pg.Pool.prototype.connect;
 
   pg.Pool.prototype.query = async function(text, params) {
     queries.push({ text, params });
@@ -14,6 +15,12 @@ test("database patch builders ignore undefined values but preserve explicit null
     return { rows: [] };
   };
   pg.Pool.prototype.end = async function() {};
+  pg.Pool.prototype.connect = async function() {
+    return {
+      query: async () => ({ rows: [] }),
+      release() {},
+    };
+  };
 
   try {
     await initDatabase("postgres://evix:test@localhost/evix");
@@ -35,6 +42,7 @@ test("database patch builders ignore undefined values but preserve explicit null
   } finally {
     pg.Pool.prototype.query = originalQuery;
     pg.Pool.prototype.end = originalEnd;
+    pg.Pool.prototype.connect = originalConnect;
     await closeDatabase();
   }
 });
