@@ -5,7 +5,7 @@ import { buildActionResult, buildClaimResult, buildClosedTicketView, buildDelete
 import { buildTranscript, transcriptAttachment } from "./transcript.js";
 import { transitionTicket } from "./state.js";
 import { categoryCandidates, findTicketCreationCategory, findTicketReopenCategory, moveTicketChannel } from "./routing.js";
-import { formatDuration, isStaff, renderTemplate, sanitizeChannelName, unique } from "./utils.js";
+import { formatDuration, isStaff, renderTemplate, sanitizeChannelName, unique, validateModalFields } from "./utils.js";
 
 const BOT_PERMISSIONS = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels];
 
@@ -91,8 +91,9 @@ export class TicketService {
     const limit = Number(settings.default_ticket_limit ?? 1);
     if (await countOpenTickets(interaction.guildId, interaction.user.id) >= limit) throw new Error("You have reached the open ticket limit (" + limit + ").");
 
+    const optionFields = validateModalFields(option.modal_fields ?? []);
     const formText = Object.entries(formValues).filter(([, value]) => String(value ?? "").trim()).map(([fieldId, value]) => {
-      const field = (option.modal_fields ?? []).find((entry) => entry.id === fieldId);
+      const field = optionFields.find((entry) => entry.id === fieldId);
       return "**" + (field?.label || fieldId) + ":** " + String(value).slice(0, 1000);
     }).join("\n");
     const storedWelcome = [option.welcome_message || "Thanks for opening a ticket. A member of the team will be with you shortly.", formText ? "\n**Request details**\n" + formText : ""].filter(Boolean).join("\n");
