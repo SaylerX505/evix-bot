@@ -207,15 +207,17 @@ export class TicketService {
     return ticket;
   }
 
-  async refreshControlMessage(interaction, ticket, { closed = false, welcomeOverride = null, closedBy = null, replace = false, fallbackToKnownState = false, requireSuccess = false } = {}) {
+  async refreshControlMessage(interaction, ticket, { closed = false, welcomeOverride = null, closedBy = null, replace = false, fallbackToKnownState = false, requireSuccess = false, useProvidedState = false } = {}) {
     return queueTicketControlRefresh(ticket.id, async () => {
-      let latest;
-      try {
-        latest = await this.getFreshTicket(interaction, ticket);
-      } catch (error) {
-        if (!fallbackToKnownState) throw error;
-        console.error("[evix-ticket-control-fresh-read-fallback]", error);
-        latest = ticket;
+      let latest = ticket;
+      if (!useProvidedState) {
+        try {
+          latest = await this.getFreshTicket(interaction, ticket);
+        } catch (error) {
+          if (!fallbackToKnownState) throw error;
+          console.error("[evix-ticket-control-fresh-read-fallback]", error);
+          latest = ticket;
+        }
       }
       if (latest.status === "deleted") return latest;
 
@@ -335,7 +337,7 @@ export class TicketService {
     await respond(interaction, buildClaimResult(next));
     void addTicketEvent(ticket.id, "TICKET_CLAIMED", interaction.user.id)
       .catch((error) => console.error("[evix-ticket-claim-event-error]", error));
-    void this.refreshControlMessage(interaction, next, { fallbackToKnownState: true })
+    void this.refreshControlMessage(interaction, next, { fallbackToKnownState: true, useProvidedState: true })
       .catch((error) => console.error("[evix-ticket-refresh-after-claim-error]", error));
     void writeTicketLog(interaction.guild, next, "TICKET_CLAIMED", interaction.user.id)
       .catch((error) => console.error("[evix-ticket-claim-log-error]", error));
@@ -626,7 +628,7 @@ export class TicketService {
 
     void addTicketEvent(next.id, "TICKET_REOPENED", interaction.user.id, { category: target.category.id })
       .catch((error) => console.error("[evix-ticket-reopen-event-error]", error));
-    void this.refreshControlMessage(interaction, next, { welcomeOverride: "This ticket has been reopened.", replace: true, fallbackToKnownState: true })
+    void this.refreshControlMessage(interaction, next, { welcomeOverride: "This ticket has been reopened.", replace: true, fallbackToKnownState: true, useProvidedState: true })
       .catch((error) => console.error("[evix-ticket-refresh-after-reopen-error]", error));
     void writeTicketLog(interaction.guild, next, "TICKET_REOPENED", interaction.user.id, { category: target.category.id })
       .catch((error) => console.error("[evix-ticket-log-after-reopen-error]", error));
@@ -774,12 +776,12 @@ export class TicketService {
     );
     if (!deleted) throw new Error("This ticket was changed by another action.");
 
-    const completion = this.finalizeDelete(interaction, deleted, previousStatus);
+    const start = () => this.finalizeDelete(interaction, deleted, previousStatus);
     if (background) {
-      return { started: true, ticket: deleted, completion };
+      return { started: true, ticket: deleted, start };
     }
 
-    await completion;
+    await start();
     return deleted;
   }
 
