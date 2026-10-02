@@ -1,5 +1,5 @@
 import { ChannelType, MessageFlags, PermissionFlagsBits } from "discord.js";
-import { addTicketEvent, addTicketMember, countOpenTickets, createTicket, getGuildSettings, getOpenTicketForUser, getTicketByChannel, getTicketById, listTicketMembers, removeTicketMember, updateTicket, withTicketActionLock } from "./db.js";
+import { addTicketEvent, addTicketMember, createTicket, getGuildSettings, getOpenTicketForUser, getTicketByChannel, getTicketById, listTicketMembers, removeTicketMember, updateTicket, withTicketActionLock } from "./db.js";
 import { writeTicketLog } from "./logs.js";
 import { buildActionResult, buildClaimResult, buildClosedTicketView, buildDeleteConfirmation, buildInfoView, buildTicketView, buildCloseConfirmation } from "./ui.js";
 import { buildTranscript, transcriptAttachment } from "./transcript.js";
