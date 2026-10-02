@@ -21,7 +21,7 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
 
     await updatePanel(1, { title: "New", accent_color: 123 });
     await updatePanelOption(2, { label: "Support", button_style: 3, action: "NOTHING" });
-    await updateTicket(3, { status: "closed", claimed_by: null, claimed_at: null, closed_by: "staff" }, { statuses: ["open", "locked"], claimedBy: null });
+    await updateTicket(3, { status: "closed", claimed_by: null, claimed_at: null, closed_by: "staff" }, { statuses: ["open"], claimedBy: null });
 
     assert.ok(queries[0].text.includes("title = $2"));
     assert.ok(queries[0].text.includes("accent_color = $3"));
@@ -35,7 +35,7 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
     assert.ok(queries[2].text.includes("claimed_by=$3"));
     assert.ok(queries[2].text.includes("status = ANY($6::text[])"));
     assert.ok(queries[2].text.includes("claimed_by IS NOT DISTINCT FROM $7"));
-    assert.deepEqual(queries[2].params, [3, "closed", null, null, "staff", ["open", "locked"], null]);
+    assert.deepEqual(queries[2].params, [3, "closed", null, null, "staff", ["open"], null]);
 
     let optionCount = 0;
     let optionQueries = [];
