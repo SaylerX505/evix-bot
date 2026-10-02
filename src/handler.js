@@ -12,6 +12,7 @@ import { getPanel, getPanelOption, updatePanel } from "./db.js";
 import { buildActionResult, buildCloseConfirmation, buildClosedTicketView, buildErrorResult, buildInfoView, buildPanelMessage, buildTicketView, v2Message } from "./ui.js";
 import { logInteractionError, normalizeError } from "./errors.js";
 import { buildRenameModal, buildTicketModal, handlePanelAutocomplete, handlePanelCommand, handleTicketCommand } from "./commands.js";
+import { validateModalFields } from "./utils.js";
 
 async function replySafely(interaction, payload) {
   if (interaction.deferred || interaction.replied) return interaction.editReply(payload);
@@ -76,8 +77,9 @@ export async function handleInteraction(interaction, { service, ui }) {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const option = await getPanelOption(match[1], interaction.guildId);
       if (!option) throw new Error("This ticket form is no longer available.");
+      const fields = validateModalFields(option.modal_fields ?? []);
       const formValues = {};
-      for (const field of option.modal_fields ?? []) {
+      for (const field of fields) {
         const value = interaction.fields.getTextInputValue(field.id);
         if (value?.trim()) formValues[field.id] = value;
       }
@@ -177,19 +179,21 @@ export async function handleInteraction(interaction, { service, ui }) {
       // Acknowledge immediately; database/API work must not consume Discord's interaction window.
       await interaction.deferUpdate();
 
-      const ticket = await service.getTicket(interaction, ticketId);
-      const canManage = service.canManageTicket(interaction.member, ticket);
-      const canClose = service.canClose(interaction.member, ticket);
-      if (!canManage && !((action === "close" || action === "keep-open") && canClose)) throw new Error("You are not authorized to confirm this action.");
-
-      if (action === "keep-open" || action === "cancel") {
-        await interaction.deleteReply().catch(() => null);
-        return;
-      }
-
-      await interaction.deleteReply().catch(() => null);
-
       try {
+        const ticket = await service.getTicket(interaction, ticketId);
+        const canManage = service.canManageTicket(interaction.member, ticket);
+        const canClose = service.canClose(interaction.member, ticket);
+        if (!canManage && !((action === "close" || action === "keep-open") && canClose)) {
+          throw new Error("You are not authorized to confirm this action.");
+        }
+
+        if (action === "keep-open" || action === "cancel") {
+          await interaction.deleteReply().catch(() => null);
+          return;
+        }
+
+        await interaction.deleteReply().catch(() => null);
+
         if (action === "close") {
           await service.withTicketActionLock(ticket.id, () =>
             service.close(interaction, ticket, { reply: false, closedBy: interaction.user.id }),
@@ -209,6 +213,7 @@ export async function handleInteraction(interaction, { service, ui }) {
       } catch (error) {
         const normalized = normalizeError(error);
         logInteractionError(interaction, normalized, error);
+        await interaction.deleteReply().catch(() => null);
         await interaction.followUp({
           ...buildErrorResult(normalized),
           flags: MessageFlags.Ephemeral,
