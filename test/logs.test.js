@@ -66,7 +66,6 @@ test("transcript audit falls back to the ticket log channel", async () => {
   const transcriptOnlyTicket = {
     ...ticket,
     transcript_log_channel_id: null,
-    transcript_channel_id: null,
   };
 
   assert.equal(
@@ -112,7 +111,6 @@ test("transcript logging skips a missing dedicated channel and uses ticket log f
   const result = await writeTicketLog(guild, {
     ...ticket,
     transcript_log_channel_id: "missing",
-    transcript_channel_id: null,
     ticket_log_channel_id: "fallback",
   }, "TRANSCRIPT_CREATED", "user");
 
