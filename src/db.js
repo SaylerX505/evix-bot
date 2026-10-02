@@ -6,6 +6,8 @@ let pool;
 const ticketActionLocks = new Map();
 const guildSettingsCache = new Map();
 const GUILD_SETTINGS_TTL_MS = 15_000;
+const ticketChannelIndex = new Set();
+let ticketChannelIndexReady = false;
 
 
 export function getPool() {
@@ -149,6 +151,11 @@ export async function initDatabase(databaseUrl) {
     CREATE INDEX IF NOT EXISTS ticket_events_ticket_idx ON ticket_events (ticket_id, created_at);
   `);
 
+  const { rows: indexedChannels } = await pool.query("SELECT channel_id FROM tickets WHERE status IN ('open','closed')");
+  ticketChannelIndex.clear();
+  for (const row of indexedChannels) ticketChannelIndex.add(String(row.channel_id));
+  ticketChannelIndexReady = true;
+
   await pool.query(`
     ALTER TABLE guild_ticket_settings ADD COLUMN IF NOT EXISTS ticket_category_id TEXT;
     ALTER TABLE guild_ticket_settings ADD COLUMN IF NOT EXISTS backup_category_id TEXT;
@@ -242,6 +249,8 @@ export async function initDatabase(databaseUrl) {
 
 export async function closeDatabase() {
   guildSettingsCache.clear();
+  ticketChannelIndex.clear();
+  ticketChannelIndexReady = false;
   await pool?.end();
   pool = undefined;
 }
@@ -592,6 +601,7 @@ export async function deletePanelOption(optionId) {
 }
 
 export async function getTicketByChannel(guildId, channelId) {
+  if (ticketChannelIndexReady && !ticketChannelIndex.has(String(channelId))) return null;
   const { rows } = await query("SELECT * FROM tickets WHERE guild_id=$1 AND channel_id=$2", [guildId, channelId]);
   return rows[0] ?? null;
 }
@@ -634,7 +644,9 @@ export async function createTicket(data) {
         data.closeBehavior || "move",
       ],
     );
-    return rows[0];
+    const ticket = rows[0];
+    if (ticket?.channel_id && ticket.status !== "deleted") ticketChannelIndex.add(String(ticket.channel_id));
+    return ticket;
   });
 }
 
@@ -663,7 +675,12 @@ export async function updateTicket(ticketId, patch, conditions = {}) {
     "UPDATE tickets SET " + assignments + " WHERE " + where.join(" AND ") + " RETURNING *",
     [ticketId,...values],
   );
-  return rows[0] ?? null;
+  const ticket = rows[0] ?? null;
+  if (ticket) {
+    if (ticket.status === "deleted") ticketChannelIndex.delete(String(ticket.channel_id));
+    else if (ticket.channel_id) ticketChannelIndex.add(String(ticket.channel_id));
+  }
+  return ticket;
 }
 
 export async function getTicketById(guildId, ticketId) {
