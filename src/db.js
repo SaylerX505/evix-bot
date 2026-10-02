@@ -4,6 +4,9 @@ import { MAX_COMPONENT_OPTIONS, unique } from "./utils.js";
 const { Pool } = pg;
 let pool;
 const ticketActionLocks = new Map();
+const guildSettingsCache = new Map();
+const GUILD_SETTINGS_TTL_MS = 15_000;
+
 
 export function getPool() {
   if (!pool) throw new Error("Database has not been initialized.");
@@ -238,6 +241,7 @@ export async function initDatabase(databaseUrl) {
 }
 
 export async function closeDatabase() {
+  guildSettingsCache.clear();
   await pool?.end();
   pool = undefined;
 }
@@ -278,13 +282,21 @@ export async function withTicketActionLock(ticketId, callback) {
 }
 
 export async function getGuildSettings(guildId) {
+  const key = String(guildId);
+  const cached = guildSettingsCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return { ...cached.value };
+
   const { rows } = await query("SELECT * FROM guild_ticket_settings WHERE guild_id=$1", [guildId]);
   const row = rows[0];
-  if (!row) return null;
+  if (!row) {
+    guildSettingsCache.set(key, { value: null, expiresAt: Date.now() + GUILD_SETTINGS_TTL_MS });
+    return null;
+  }
   row.ticket_category_id = row.ticket_category_id ?? row.open_category_id ?? null;
   row.ticket_log_channel_id = row.ticket_log_channel_id ?? row.log_channel_id ?? null;
   row.transcript_log_channel_id = row.transcript_log_channel_id ?? row.transcript_channel_id ?? null;
-  return row;
+  guildSettingsCache.set(key, { value: { ...row }, expiresAt: Date.now() + GUILD_SETTINGS_TTL_MS });
+  return { ...row };
 }
 
 export async function upsertGuildSettings(guildId, patch) {
@@ -368,7 +380,9 @@ export async function upsertGuildSettings(guildId, patch) {
         next.default_ticket_limit ?? 1,
       ],
     );
-    return rows[0];
+    const saved = rows[0];
+    guildSettingsCache.set(String(guildId), { value: { ...saved, ticket_category_id: saved.ticket_category_id ?? saved.open_category_id ?? null, ticket_log_channel_id: saved.ticket_log_channel_id ?? saved.log_channel_id ?? null, transcript_log_channel_id: saved.transcript_log_channel_id ?? saved.transcript_channel_id ?? null }, expiresAt: Date.now() + GUILD_SETTINGS_TTL_MS });
+    return saved;
   });
 }
 export async function createPanel(data) {
