@@ -2,6 +2,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PermissionFlagsBits } from "discord.js";
+import pg from "pg";
+import { closeDatabase, initDatabase } from "../src/db.js";
 import { TicketService } from "../src/tickets.js";
 
 const service = new TicketService({});
@@ -184,6 +186,95 @@ test("control refresh can use a verified ticket snapshot without another databas
     assert.match(JSON.stringify(edited[0].components.map((component) => component.toJSON())), /Get Transcript/);
   } finally {
     service.getFreshTicket = originalFresh;
+  }
+});
+
+test("close replaces the public control message only once", async () => {
+  const originalQuery = pg.Pool.prototype.query;
+  const originalEnd = pg.Pool.prototype.end;
+  const originalRefresh = service.refreshControlMessage;
+  const originalPermissions = service.setParticipantPermissions;
+  const originalQueue = service.queueChannelName;
+
+  const refreshCalls = [];
+  pg.Pool.prototype.query = async function(text) {
+    if (String(text).startsWith("UPDATE tickets SET")) {
+      return {
+        rows: [{
+          id: 60,
+          ticket_key: "EVX-000060",
+          owner_id: "owner",
+          type_label: "Support",
+          status: "closed",
+          claimed_by: null,
+          claimed_at: null,
+          closed_by: "staff",
+          closed_at: new Date(),
+          category_id: "open-category",
+          current_category_id: "open-category",
+          closed_category_id: null,
+          staff_roles: [],
+          ping_roles: [],
+          created_at: "2026-10-01T00:00:00.000Z",
+          ticket_logs_enabled: false,
+        }],
+      };
+    }
+    return { rows: [] };
+  };
+  pg.Pool.prototype.end = async function() {};
+
+  const interaction = {
+    guildId: "guild",
+    user: { id: "staff" },
+    member: member("staff", { manageChannels: true }),
+    deferred: true,
+    replied: false,
+    editReply: async () => {},
+    reply: async () => {},
+    channel: {
+      parentId: "open-category",
+      setName: async () => {},
+    },
+    guild: { channels: {} },
+  };
+  const ticket = {
+    id: 60,
+    ticket_key: "EVX-000060",
+    owner_id: "owner",
+    type_label: "Support",
+    status: "open",
+    claimed_by: null,
+    claimed_at: null,
+    category_id: "open-category",
+    current_category_id: "open-category",
+    closed_category_id: null,
+    close_behavior: "stay",
+    staff_roles: [],
+    created_at: "2026-10-01T00:00:00.000Z",
+    ticket_logs_enabled: false,
+  };
+
+  service.refreshControlMessage = async () => { refreshCalls.push("closed-control"); };
+  service.setParticipantPermissions = async () => ({ changed: [], failed: [] });
+  service.queueChannelName = () => Promise.resolve();
+
+  try {
+    await initDatabase("postgres://evix:test@localhost/evix");
+    await service.close(interaction, ticket, {
+      reply: false,
+      closedBy: "staff",
+      backgroundSideEffects: true,
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(refreshCalls, ["closed-control"]);
+  } finally {
+    service.refreshControlMessage = originalRefresh;
+    service.setParticipantPermissions = originalPermissions;
+    service.queueChannelName = originalQueue;
+    pg.Pool.prototype.query = originalQuery;
+    pg.Pool.prototype.end = originalEnd;
+    await closeDatabase();
   }
 });
 
