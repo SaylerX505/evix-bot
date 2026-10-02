@@ -1,5 +1,5 @@
 import { ChannelType, MessageFlags, PermissionFlagsBits } from "discord.js";
-import { addTicketEvent, addTicketMember, countOpenTickets, createTicket, getGuildSettings, getOpenTicketForUser, getTicketByChannel, listTicketMembers, removeTicketMember, updateTicket, withTicketActionLock } from "./db.js";
+import { addTicketEvent, addTicketMember, countOpenTickets, createTicket, getGuildSettings, getOpenTicketForUser, getTicketByChannel, getTicketById, listTicketMembers, removeTicketMember, updateTicket, withTicketActionLock } from "./db.js";
 import { writeTicketLog } from "./logs.js";
 import { buildActionResult, buildClaimResult, buildClosedTicketView, buildDeleteConfirmation, buildInfoView, buildTicketView, buildCloseConfirmation } from "./ui.js";
 import { buildTranscript, transcriptAttachment } from "./transcript.js";
@@ -44,6 +44,12 @@ export class TicketService {
   canManageTicket(member, ticket) { return Boolean(member?.permissions?.has(PermissionFlagsBits.ManageChannels) || isStaff(member, unique(ticket.staff_roles))); }
   assertStaff(member, ticket) { if (!this.canManageTicket(member, ticket)) throw new Error("You are not authorized to manage this ticket."); }
   canClose(member, ticket) { return member?.id === ticket.owner_id || this.canManageTicket(member, ticket); }
+
+  async getFreshTicket(interaction, ticket) {
+    const latest = await getTicketById(interaction.guildId, ticket.id);
+    if (!latest) throw new Error("This ticket no longer exists.");
+    return latest;
+  }
 
   async getTicket(interaction, ticketId = null) {
     const ticket = await getTicketByChannel(interaction.guildId, interaction.channelId);
@@ -250,6 +256,7 @@ export class TicketService {
   }
 
   async claim(interaction, ticket) {
+    ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
     if (ticket.status !== "open") throw new Error("Only open tickets can be claimed.");
     if (ticket.claimed_by === interaction.user.id) return respond(interaction, buildActionResult("Ticket Claimed", "You already have this ticket claimed."));
@@ -267,6 +274,7 @@ export class TicketService {
   }
 
   async unclaim(interaction, ticket) {
+    ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
     if (!ticket.claimed_by) return respond(interaction, buildActionResult("Ticket Unclaimed", "This ticket is not currently claimed."));
     const next = await updateTicket(ticket.id, { claimed_by: null, claimed_at: null }, { statuses: ["open"], claimedBy: ticket.claimed_by });
@@ -282,6 +290,7 @@ export class TicketService {
   }
 
   async requestClose(interaction, ticket) {
+    ticket = await this.getFreshTicket(interaction, ticket);
     if (!this.canClose(interaction.member, ticket)) throw new Error("Only the ticket owner or configured staff can close this ticket.");
     if (ticket.status === "closed") {
       await this.refreshControlMessage(interaction, ticket, { closed: true, closedBy: ticket.closed_by });
@@ -292,8 +301,15 @@ export class TicketService {
   }
 
   async close(interaction, ticket, { reply = true, closedBy = null, backgroundSideEffects = true } = {}) {
+    ticket = await this.getFreshTicket(interaction, ticket);
     if (!this.canClose(interaction.member, ticket)) throw new Error("Only the ticket owner or configured staff can close this ticket.");
-    if (ticket.status === "closed") return ticket;
+    if (ticket.status === "closed") {
+      if (reply) {
+        await this.refreshControlMessage(interaction, ticket, { closed: true, closedBy: ticket.closed_by });
+        await respond(interaction, buildActionResult("Ticket Already Closed", "This ticket is already closed. Use the controls on the closed ticket message."));
+      }
+      return ticket;
+    }
     if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
     transitionTicket(ticket.status, "close");
 
@@ -380,6 +396,7 @@ export class TicketService {
   }
   
   async reopen(interaction, ticket) {
+    ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
     if (statusIsActive(ticket.status)) return respond(interaction, buildActionResult("Ticket Already Open", "This ticket is already active."));
     if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
@@ -477,6 +494,7 @@ export class TicketService {
   }
 
   async rename(interaction, ticket, name) {
+    ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
     const safe = sanitizeChannelName(name);
     if (!safe) throw new Error("The ticket name cannot be empty.");
@@ -490,6 +508,7 @@ export class TicketService {
   }
 
   async addMember(interaction, ticket, userId) {
+    ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
     if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
     const member = await interaction.guild.members.fetch(userId).catch(() => null);
@@ -521,6 +540,7 @@ export class TicketService {
   }
 
   async removeMember(interaction, ticket, userId) {
+    ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
     if (userId === ticket.owner_id) throw new Error("The ticket owner cannot be removed.");
     const members = await listTicketMembers(ticket.id);
@@ -551,12 +571,14 @@ export class TicketService {
   }
 
   async requestDelete(interaction, ticket) {
+    ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
     if (ticket.status === "deleted") return respond(interaction, buildActionResult("Ticket Deleted", "This ticket is already deleted."));
     return respond(interaction, buildDeleteConfirmation(ticket));
   }
 
   async delete(interaction, ticket) {
+    ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
     if (ticket.status === "deleted") return respond(interaction, buildActionResult("Ticket Deleted", "This ticket is already deleted."));
     if (ticket.status !== "closed") ticket = await this.close(interaction, ticket, { reply: false, closedBy: interaction.user.id, backgroundSideEffects: false });
@@ -575,6 +597,7 @@ export class TicketService {
   }
 
   async sendTranscript(interaction, ticket) {
+    ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
     const transcript = await buildTranscript(interaction.channel, ticket);
     await respond(interaction, { ...buildActionResult("Transcript Ready", "Transcript generated for `" + ticket.ticket_key + "`."), files: [transcriptAttachment(transcript.buffer, transcript.fileName)], flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral });
