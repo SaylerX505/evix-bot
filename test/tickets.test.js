@@ -432,6 +432,9 @@ test("transcript gives immediate progress feedback and sends the same file to th
     assert.match(JSON.stringify(edits[0].components.map((component) => component.toJSON())), /Generating Transcript/);
     assert.equal(edits[1].files.length, 1);
     assert.equal(edits[1].files[0].name, "evx-000055-transcript.html");
+
+    await new Promise((resolve) => setImmediate(resolve));
+
     assert.equal(sent.length, 1);
     assert.equal(sent[0].files.length, 1);
     assert.equal(sent[0].files[0].name, "evx-000055-transcript.html");
