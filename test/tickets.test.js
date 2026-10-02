@@ -28,6 +28,57 @@ test("ticket owner may close and view info but is not staff", () => {
 });
 
 
+test("control refresh requires fresh ticket state and does not trust stale input", async () => {
+  const originalFresh = service.getFreshTicket;
+  const original = service.getFreshTicket;
+  service.getFreshTicket = async () => ({
+    id: 41, channel_id: "channel", control_message_id: "control",
+    ticket_key: "EVX-000041", owner_id: "owner", type_label: "Support",
+    status: "closed", closed_by: "staff", staff_roles: [],
+  });
+  const edited = [];
+  const interaction = {
+    guildId: "guild",
+    guild: {
+      channels: {
+        fetch: async () => ({
+          isTextBased: () => true,
+          messages: { fetch: async () => ({ edit: async (payload) => edited.push(payload) }) },
+        }),
+      },
+    },
+  };
+  try {
+    await service.refreshControlMessage(interaction, {
+      id: 41, channel_id: "channel", control_message_id: "control",
+      ticket_key: "EVX-000041", owner_id: "owner", type_label: "Support",
+      status: "open", claimed_by: "staff", staff_roles: [],
+    });
+    assert.equal(edited.length, 1);
+    const rendered = JSON.stringify(edited[0].components.map((component) => component.toJSON()));
+    assert.match(rendered, /Get Transcript/);
+    assert.doesNotMatch(rendered, /evix:t:41:claim|evix:t:41:close|evix:t:41:info/);
+  } finally {
+    service.getFreshTicket = originalFresh;
+  }
+});
+
+test("control refresh propagates fresh ticket lookup failures", async () => {
+  const originalFresh = service.getFreshTicket;
+  service.getFreshTicket = async () => { throw new Error("database unavailable"); };
+  try {
+    await assert.rejects(
+      () => service.refreshControlMessage({
+        guildId: "guild",
+        guild: { channels: { fetch: async () => { throw new Error("must not fetch channel"); } } },
+      }, { id: 42, channel_id: "channel" }),
+      /database unavailable/,
+    );
+  } finally {
+    service.getFreshTicket = originalFresh;
+  }
+});
+
 test("ticket control refreshes are serialized per ticket", async () => {
   const events = [];
   let first = true;
@@ -195,6 +246,8 @@ test("control refresh falls back to editing the existing message when replacemen
       edited.push(payload);
     },
   };
+  const originalFresh = service.getFreshTicket;
+  service.getFreshTicket = async () => ticket;
   const channel = {
     isTextBased: () => true,
     messages: {
@@ -227,4 +280,5 @@ test("control refresh falls back to editing the existing message when replacemen
   assert.match(rendered, /Get Transcript/);
   assert.match(rendered, /Reopen/);
   assert.match(rendered, /Delete Ticket/);
+  service.getFreshTicket = originalFresh;
 });
