@@ -45,7 +45,7 @@ export class MemoryCache {
 
   setIfGeneration(key, value, expectedGeneration, ttlMs = this.ttlMs) {
     const normalizedKey = String(key);
-    if ((this.generations.get(normalizedKey) ?? 0) !== expectedGeneration) {
+    if (this.generation(normalizedKey) !== expectedGeneration) {
       return false;
     }
     this.set(normalizedKey, value, ttlMs);
