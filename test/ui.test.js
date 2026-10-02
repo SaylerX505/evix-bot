@@ -124,3 +124,44 @@ test("closed ticket replaces active controls with only transcript, reopen and de
   assert.match(json, /evix:t:42:delete/);
   assert.doesNotMatch(json, /evix:t:42:(claim|unclaim|close|info)/);
 });
+
+
+test("ticket control matrix never exposes invalid actions across ticket states", () => {
+  const states = ["open", "locked", "closed", "deleted"];
+  const claimed = [null, "staff"];
+
+  for (const status of states) {
+    for (const claimedBy of claimed) {
+      const ticket = {
+        id: 9001,
+        ticket_key: "EVX-009001",
+        type_label: "Support",
+        owner_id: "owner",
+        claimed_by: claimedBy,
+        status,
+      };
+      const payload = status === "closed"
+        ? buildClosedTicketView(ticket)
+        : buildTicketView(ticket, { welcome_message: "Welcome" });
+      const json = JSON.stringify(containerJson(payload));
+
+      if (status === "open" && !claimedBy) {
+        assert.match(json, /:claim/);
+        assert.doesNotMatch(json, /:unclaim/);
+      } else if ((status === "open" || status === "locked") && claimedBy) {
+        assert.match(json, /:unclaim/);
+        assert.doesNotMatch(json, /:claim/);
+      } else if (status === "open") {
+        assert.match(json, /:claim/);
+      } else if (status === "closed") {
+        assert.match(json, /:transcript/);
+        assert.match(json, /:reopen/);
+        assert.match(json, /:delete/);
+        assert.doesNotMatch(json, /:claim|:unclaim|:close|:info/);
+      } else if (status === "deleted") {
+        assert.doesNotMatch(json, /:claim|:unclaim|:close|:reopen|:transcript|:delete|:info/);
+      }
+    }
+  }
+});
+
