@@ -446,24 +446,22 @@ test("delete treats an already-missing Discord channel as successful", async () 
   const channel = {
     delete: async () => { throw { code: "10003", message: "Unknown Channel" }; },
   };
-  try {
-    await assert.doesNotReject(
-      () => service.finalizeDelete(
-        { channel, guild: { client: { user: { username: "Evix" } }, channels: {} }, user: { id: "staff" } },
-        {
-          id: 56,
-          ticket_key: "EVX-000056",
-          type_label: "Support",
-          channel_id: "channel",
-          status: "deleted",
-          ticket_logs_enabled: false,
-          transcript_logs_enabled: false,
-          moderation_logs_enabled: false,
-        },
-        "closed",
-      ),
-    );
-  });
+  await assert.doesNotReject(
+    () => service.finalizeDelete(
+      { channel, guild: { client: { user: { username: "Evix" } }, channels: {} }, user: { id: "staff" } },
+      {
+        id: 56,
+        ticket_key: "EVX-000056",
+        type_label: "Support",
+        channel_id: "channel",
+        status: "deleted",
+        ticket_logs_enabled: false,
+        transcript_logs_enabled: false,
+        moderation_logs_enabled: false,
+      },
+      "closed",
+    ),
+  );
 });
 
 test("ticket role management rejects a deleted ticket after refreshing state", async () => {
