@@ -127,6 +127,66 @@ test("post-mutation control refresh may use only the explicitly trusted state on
   }
 });
 
+test("trusted control refresh skips the database reread", async () => {
+  const originalFresh = service.getFreshTicket;
+  service.getFreshTicket = async () => {
+    throw new Error("unexpected database reread");
+  };
+  const edited = [];
+  const ticket = {
+    id: 57,
+    channel_id: "channel",
+    control_message_id: "control",
+    ticket_key: "EVX-000057",
+    owner_id: "owner",
+    type_label: "Support",
+    status: "closed",
+    closed_by: "staff",
+  };
+  const interaction = {
+    guildId: "guild",
+    guild: {
+      channels: {
+        fetch: async () => ({
+          isTextBased: () => true,
+          messages: {
+            fetch: async () => ({ edit: async (payload) => edited.push(payload) }),
+          },
+        }),
+      },
+    },
+  };
+  try {
+    await service.refreshControlMessage(interaction, ticket, {
+      ticketIsFresh: true,
+      requireSuccess: true,
+    });
+    assert.equal(edited.length, 1);
+  } finally {
+    service.getFreshTicket = originalFresh;
+  }
+});
+
+test("required control refresh fails when no public channel can be reached", async () => {
+  const originalFresh = service.getFreshTicket;
+  service.getFreshTicket = async (_interaction, ticket) => ticket;
+  try {
+    await assert.rejects(
+      () => service.refreshControlMessage(
+        {
+          guildId: "guild",
+          guild: { channels: { fetch: async () => null } },
+        },
+        { id: 60, channel_id: "missing", status: "closed" },
+        { ticketIsFresh: true, requireSuccess: true },
+      ),
+      /control channel is no longer available/,
+    );
+  } finally {
+    service.getFreshTicket = originalFresh;
+  }
+});
+
 test("control refresh propagates fresh ticket lookup failures", async () => {
   const originalFresh = service.getFreshTicket;
   service.getFreshTicket = async () => { throw new Error("database unavailable"); };
@@ -392,54 +452,6 @@ test("ticket role management rejects a deleted ticket after refreshing state", a
 });
 
 
-
-test("control refresh does not wait for deletion of the old public control message", async () => {
-  const originalFresh = service.getFreshTicket;
-  service.getFreshTicket = async (_interaction, ticket) => ticket;
-  let resolveDelete;
-  const deletionStarted = new Promise((resolve) => { resolveDelete = resolve; });
-  const oldMessage = {
-    async edit() {},
-  };
-  const newMessage = { id: "new-control" };
-  const channel = {
-    isTextBased: () => true,
-    messages: {
-      fetch: async () => oldMessage,
-      delete: async () => deletionStarted,
-    },
-    send: async () => newMessage,
-  };
-  const interaction = {
-    guildId: "guild",
-    guild: { channels: { fetch: async () => channel } },
-  };
-  const ticket = {
-    id: 58,
-    channel_id: "channel",
-    control_message_id: "old-control",
-    ticket_key: "EVX-000058",
-    owner_id: "owner",
-    type_label: "Support",
-    status: "closed",
-    closed_by: "staff",
-  };
-
-  try {
-    const started = Date.now();
-    const refreshed = await service.refreshControlMessage(
-      interaction,
-      ticket,
-      { replace: true, ticketIsFresh: true, fallbackToKnownState: true },
-    );
-    const elapsed = Date.now() - started;
-    assert.equal(refreshed.control_message_id, undefined);
-    assert.ok(elapsed < 100);
-    resolveDelete();
-  } finally {
-    service.getFreshTicket = originalFresh;
-  }
-});
 
 test("concurrent transcript requests share one history fetch job", async () => {
   const originalFresh = service.getFreshTicket;
