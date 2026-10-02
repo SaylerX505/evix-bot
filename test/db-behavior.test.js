@@ -70,6 +70,12 @@ test("ticket event listing uses a deterministic tie-breaker", async () => {
     return { rows: [{ id: 2 }, { id: 3 }] };
   };
   pg.Pool.prototype.end = async function() {};
+  pg.Pool.prototype.connect = async function() {
+    return {
+      query: async () => ({ rows: [] }),
+      release() {},
+    };
+  };
 
   try {
     await initDatabase("postgres://evix:test@localhost/evix");
