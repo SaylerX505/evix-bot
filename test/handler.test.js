@@ -161,6 +161,32 @@ test("concurrent delete confirmations are serialized instead of returning ticket
   assert.deepEqual(service.calls, ["delete", "delete"]);
 });
 
+test("delete confirmation acknowledges deletion before the channel deletion promise finishes", async () => {
+  const interaction = makeButton("evix:confirm:42:delete");
+  const service = delayedService({
+    id: 42,
+    owner_id: "owner",
+    status: "closed",
+    staff_roles: [],
+  });
+  service.canManageTicket = () => true;
+
+  let resolveDeletion;
+  const deletionFinished = new Promise((resolve) => { resolveDeletion = resolve; });
+  service.delete = async () => ({
+    started: true,
+    completion: deletionFinished,
+  });
+
+  const running = handleInteraction(interaction, { service, ui: {} });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(interaction.calls, ["deferUpdate", "deleteReply", "followUp"]);
+  assert.match(JSON.stringify(interaction.followUpPayload.components.map((component) => component.toJSON())), /Deleting Ticket/);
+
+  resolveDeletion();
+  await running;
+});
+
 test("ticket confirmation success followups keep Components V2 and Ephemeral flags", async () => {
   for (const action of ["close", "delete"]) {
     const interaction = makeButton("evix:confirm:42:" + action);
