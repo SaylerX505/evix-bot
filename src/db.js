@@ -582,7 +582,7 @@ export async function createTicket(data) {
 
     if (Number.isInteger(data.ticketLimit) && data.ticketLimit > 0) {
       const { rows: countRows } = await client.query(
-        "SELECT COUNT(*)::int AS count FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND status IN ('open','locked')",
+        "SELECT COUNT(*)::int AS count FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND status = 'open'",
         [data.guildId, data.ownerId],
       );
       if (countRows[0].count >= data.ticketLimit) {
