@@ -143,6 +143,50 @@ test("control refresh propagates fresh ticket lookup failures", async () => {
   }
 });
 
+test("control refresh can use a verified ticket snapshot without another database read", async () => {
+  const originalFresh = service.getFreshTicket;
+  service.getFreshTicket = async () => {
+    throw new Error("unexpected database read");
+  };
+
+  const edited = [];
+  const ticket = {
+    id: 57,
+    channel_id: "channel",
+    control_message_id: "control",
+    ticket_key: "EVX-000057",
+    owner_id: "owner",
+    type_label: "Support",
+    status: "closed",
+    closed_by: "staff",
+    staff_roles: [],
+  };
+  const interaction = {
+    guildId: "guild",
+    guild: {
+      channels: {
+        fetch: async () => ({
+          isTextBased: () => true,
+          messages: {
+            fetch: async () => ({ edit: async (payload) => edited.push(payload) }),
+          },
+        }),
+      },
+    },
+  };
+
+  try {
+    await service.refreshControlMessage(interaction, ticket, {
+      replace: false,
+      useProvidedState: true,
+    });
+    assert.equal(edited.length, 1);
+    assert.match(JSON.stringify(edited[0].components.map((component) => component.toJSON())), /Get Transcript/);
+  } finally {
+    service.getFreshTicket = originalFresh;
+  }
+});
+
 test("ticket control refreshes are serialized per ticket", async () => {
   const originalFresh = service.getFreshTicket;
   service.getFreshTicket = async (_interaction, ticket) => ticket;
