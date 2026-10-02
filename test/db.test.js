@@ -113,13 +113,22 @@ test("ticket action lock serializes a ticket without holding a database connecti
   assert.equal(result, "ok");
 });
 
-test("ticket action lock rejects a concurrent action", async () => {
+test("ticket action lock serializes concurrent actions in order", async () => {
+  const order = [];
   let release;
-  const first = withTicketActionLock(42, () => new Promise((resolve) => { release = resolve; }));
-  await assert.rejects(
-    () => withTicketActionLock(42, async () => "unexpected"),
-    (error) => error.code === "EVIX_TICKET_BUSY",
-  );
+  const first = withTicketActionLock(42, () => new Promise((resolve) => {
+    order.push("first");
+    release = resolve;
+  }));
+  const second = withTicketActionLock(42, async () => {
+    order.push("second");
+    return "second-result";
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(order, ["first"]);
   release("done");
   assert.equal(await first, "done");
+  assert.equal(await second, "second-result");
+  assert.deepEqual(order, ["first", "second"]);
 });
