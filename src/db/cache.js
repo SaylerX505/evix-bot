@@ -107,7 +107,9 @@ export class MemoryCache {
   pruneExpired() {
     const now = this.now();
     for (const [key, record] of this.entries) {
-      if (record.expiresAt <= now) this.entries.delete(key);
+      if (record.expiresAt > now) continue;
+      this.entries.delete(key);
+      this.compactGeneration(key);
     }
   }
 
