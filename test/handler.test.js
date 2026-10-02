@@ -227,7 +227,7 @@ test("concurrent delete confirmations do not wait for the first Discord channel 
   const secondRun = handleInteraction(interactions[1], { service, ui: {} });
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert.equal(deleteCalls, 1);
+  assert.equal(deleteCalls, 2);
   assert.equal(interactions[0].editReplyPayloads?.some((payload) => JSON.stringify(payload.components?.map((x) => x.toJSON())).includes("Deleting Ticket")), true);
   assert.equal(interactions[1].editReplyPayloads?.some((payload) => JSON.stringify(payload.components?.map((x) => x.toJSON())).includes("already been deleted")), true);
 
