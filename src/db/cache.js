@@ -12,6 +12,7 @@ export class MemoryCache {
     this.name = name;
     this.entries = new Map();
     this.generations = new Map();
+    this.epoch = 0;
     this.now = () => Date.now();
   }
 
@@ -63,12 +64,12 @@ export class MemoryCache {
   }
 
   generation(key) {
-    return this.generations.get(String(key)) ?? 0;
+    return this.epoch + ":" + (this.generations.get(String(key)) ?? 0);
   }
 
   clear() {
     this.entries.clear();
-    this.generations.clear();
+    this.epoch += 1;
   }
 
   get size() {
