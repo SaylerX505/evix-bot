@@ -31,11 +31,10 @@ function channelKey(guildId, channelId) {
 function rememberTicket(ticket) {
   if (!ticket?.guild_id || !ticket?.channel_id) return;
 
-  for (const [key, value] of TICKET_CHANNEL_HINT_CACHE.entries) {
-    if (String(value.ticketId) === String(ticket.id) && key !== channelKey(ticket.guild_id, ticket.channel_id)) {
-      TICKET_CHANNEL_HINT_CACHE.invalidate(key);
-    }
-  }
+  TICKET_CHANNEL_HINT_CACHE.deleteWhere((value, key) => (
+    key !== channelKey(ticket.guild_id, ticket.channel_id)
+    && String(value?.id) === String(ticket.id)
+  ));
 
   TICKET_CHANNEL_HINT_CACHE.set(channelKey(ticket.guild_id, ticket.channel_id), ticket, 10_000);
 }
@@ -60,19 +59,22 @@ export async function getTicketByChannel(guildId, channelId) {
 }
 
 export async function getOpenTicketForUser(guildId, ownerId, optionId) {
-  return getCached(
-    TICKET_CHANNEL_HINT_CACHE,
-    "open:" + guildId + ":" + ownerId + ":" + optionId,
-    async () => {
-      const { rows } = await query(
-        "SELECT * FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND option_id=$3 AND status='open' ORDER BY created_at DESC, id DESC LIMIT 1",
-        [guildId, ownerId, optionId],
-      );
-      const ticket = rows[0] ?? null;
-      if (ticket) rememberTicket(ticket);
-      return ticket;
-    },
+  const { rows } = await query(
+    "SELECT * FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND option_id=$3 AND status='open' ORDER BY created_at DESC, id DESC LIMIT 1",
+    [guildId, ownerId, optionId],
   );
+  const ticket = rows[0] ?? null;
+  if (ticket) rememberTicket(ticket);
+  return ticket;
+}
+
+export async function allocateTicketId() {
+  const { rows } = await query(
+    "SELECT nextval(pg_get_serial_sequence('tickets', 'id'))::bigint AS id",
+  );
+  const id = rows[0]?.id;
+  if (id === undefined || id === null) throw new Error("Ticket ID allocation failed.");
+  return Number(id);
 }
 
 export async function createTicket(data) {
@@ -96,13 +98,14 @@ export async function createTicket(data) {
     }
 
     const { rows } = await client.query(
-      "WITH next_id AS (SELECT nextval('tickets_id_seq') AS id) " +
       "INSERT INTO tickets (id,guild_id,panel_id,option_id,ticket_key,channel_id,owner_id,type_label,status,category_id,current_category_id,closed_category_id,staff_roles,ping_roles,dedupe_key,ticket_log_channel_id,moderation_log_channel_id,transcript_log_channel_id,ticket_logs_enabled,moderation_logs_enabled,transcript_logs_enabled,control_message_id,welcome_message,close_behavior) " +
-      "SELECT id,$1,$2,$3,'EVX-' || LPAD(id::text,6,'0'),$4,$5,$6,'open',$7,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20 FROM next_id RETURNING *",
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,'open',$8,$8,$9,$10,$11::jsonb,$12::jsonb,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING *",
       [
+        data.id ?? null,
         data.guildId,
         data.panelId,
         data.optionId,
+        data.id != null ? "EVX-" + String(data.id).padStart(6, "0") : null,
         data.channelId,
         data.ownerId,
         data.typeLabel,
