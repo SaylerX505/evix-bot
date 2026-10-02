@@ -493,8 +493,8 @@ export async function addPanelOption(data) {
     const position = Number(positionRows[0]?.next_position ?? 0);
 
     const { rows } = await client.query(
-      "INSERT INTO ticket_panel_options (panel_id,position,component_kind,label,description,emoji,action,category_id,closed_category_id,staff_roles,ping_roles,log_channel_id,moderation_log_channel_id,transcript_channel_id,welcome_message,ticket_name_template,close_behavior,transcript_on_close,allow_multiple,button_style,modal_fields) " +
-      "VALUES ($1,$2,'dropdown',$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15,$16,$17,$18::jsonb) RETURNING *",
+      "INSERT INTO ticket_panel_options (panel_id,position,component_kind,label,description,emoji,action,category_id,closed_category_id,staff_roles,ping_roles,log_channel_id,moderation_log_channel_id,transcript_channel_id,welcome_message,ticket_name_template,close_behavior,allow_multiple,button_style,modal_fields) " +
+      "VALUES ($1,$2,'dropdown',$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb) RETURNING *",
       [
         data.panelId,
         position,
@@ -512,7 +512,6 @@ export async function addPanelOption(data) {
         data.welcomeMessage ?? "",
         data.ticketNameTemplate || "ticket-{number}",
         data.closeBehavior || "move",
-        data.transcriptOnClose !== false,
         data.allowMultiple === true,
         data.buttonStyle ?? 2,
         JSON.stringify(data.modalFields ?? []),
