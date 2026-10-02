@@ -185,17 +185,27 @@ export class TicketService {
   async refreshControlMessage(interaction, ticket, { closed = false, welcomeOverride = null, closedBy = null, replace = false } = {}) {
     return queueTicketControlRefresh(ticket.id, async () => {
       const latest = (await getTicketByChannel(interaction.guildId, ticket.channel_id).catch(() => null)) || ticket;
+      if (latest.status === "deleted") return latest;
+
       const renderClosed = latest.status === "closed";
       const payload = renderClosed
         ? buildClosedTicketView({ ...latest, closed_by: closedBy || latest.closed_by })
         : buildTicketView(latest, { welcome_message: welcomeOverride ?? latest.welcome_message ?? "Thanks for opening a ticket. A member of the team will be with you shortly." });
       const channel = await interaction.guild.channels.fetch(latest.channel_id).catch(() => null);
       if (!channel?.isTextBased?.()) return latest;
+
       const oldMessageId = latest.control_message_id;
       const message = oldMessageId ? await channel.messages.fetch(oldMessageId).catch(() => null) : null;
+
       if (message && !replace) {
-        try { await message.edit(payload); return latest; } catch (error) { console.error("[evix-ticket-control-edit-error]", error); }
+        try {
+          await message.edit(payload);
+          return latest;
+        } catch (error) {
+          console.error("[evix-ticket-control-edit-error]", error);
+        }
       }
+
       try {
         const newMessage = await channel.send(payload);
         const next = await updateTicket(latest.id, { control_message_id: newMessage.id });
@@ -203,13 +213,27 @@ export class TicketService {
           await newMessage.delete("Evix ticket control state persistence failed").catch(() => null);
           throw new Error("Ticket control message state could not be persisted.");
         }
+
         if (oldMessageId && oldMessageId !== newMessage.id) {
           await channel.messages.delete(oldMessageId, "Evix replaced ticket control view").catch((error) => {
             console.error("[evix-ticket-control-old-message-delete-error]", error);
           });
         }
         return next;
-      } catch (error) { console.error("[evix-ticket-control-send-error]", error); return latest; }
+      } catch (error) {
+        console.error("[evix-ticket-control-send-error]", error);
+
+        // Never leave a stale public control view when the replacement path fails.
+        if (message) {
+          try {
+            await message.edit(payload);
+            return latest;
+          } catch (fallbackError) {
+            console.error("[evix-ticket-control-fallback-edit-error]", fallbackError);
+          }
+        }
+        return latest;
+      }
     });
   }
   async setParticipantPermissions(interaction, ticket, { view = true, send = true, rollbackTo = { view: true, send: true }, bestEffort = false } = {}) {
