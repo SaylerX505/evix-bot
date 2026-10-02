@@ -318,6 +318,8 @@ export async function upsertGuildSettings(guildId, patch) {
     Object.entries(patch ?? {}).filter(([key, value]) => allowed.has(key) && value !== undefined),
   );
 
+  if (!Object.keys(requested).length) return getGuildSettings(guildId);
+
   if (Object.hasOwn(requested, "ticket_category_id") && !Object.hasOwn(requested, "open_category_id")) {
     requested.open_category_id = requested.ticket_category_id;
   } else if (Object.hasOwn(requested, "open_category_id") && !Object.hasOwn(requested, "ticket_category_id")) {
