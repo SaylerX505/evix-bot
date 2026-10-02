@@ -54,6 +54,8 @@ const ticketCommand = new SlashCommandBuilder()
     .addChannelOption((o) => channelOption(o, "tickets_category", "Main ticket category", [ChannelType.GuildCategory]).setRequired(true))
     .addChannelOption((o) => channelOption(o, "backup_category", "Optional backup ticket category", [ChannelType.GuildCategory]))
     .addChannelOption((o) => channelOption(o, "closed_category", "Optional closed ticket category", [ChannelType.GuildCategory]))
+    .addBooleanOption((o) => o.setName("clear_backup_category").setDescription("Clear the configured backup category"))
+    .addBooleanOption((o) => o.setName("clear_closed_category").setDescription("Clear the configured closed category"))
     .addIntegerOption((o) => o.setName("ticket_limit").setDescription("Open tickets per member").setMinValue(1).setMaxValue(25)))
   .addSubcommand((s) => s.setName("config").setDescription("View ticket configuration"))
   .addSubcommand((s) => s.setName("logs").setDescription("Configure ticket logs")
@@ -134,12 +136,23 @@ export async function handleTicketCommand(interaction, service, ui) {
 
   if (sub === "setup") {
     const ticketsCategory = interaction.options.getChannel("tickets_category", true);
-    const saved = await upsertGuildSettings(interaction.guildId, {
+    const backupCategory = interaction.options.getChannel("backup_category");
+    const closedCategory = interaction.options.getChannel("closed_category");
+    const clearBackup = interaction.options.getBoolean("clear_backup_category") === true;
+    const clearClosed = interaction.options.getBoolean("clear_closed_category") === true;
+    if (backupCategory && clearBackup) throw new Error("Choose either a backup category or clear backup category.");
+    if (closedCategory && clearClosed) throw new Error("Choose either a closed category or clear closed category.");
+
+    const patch = {
       ticket_category_id: ticketsCategory.id,
-      backup_category_id: interaction.options.getChannel("backup_category")?.id ?? null,
-      closed_category_id: interaction.options.getChannel("closed_category")?.id ?? null,
       default_ticket_limit: interaction.options.getInteger("ticket_limit") ?? undefined,
-    });
+    };
+    if (clearBackup) patch.backup_category_id = null;
+    else if (backupCategory) patch.backup_category_id = backupCategory.id;
+    if (clearClosed) patch.closed_category_id = null;
+    else if (closedCategory) patch.closed_category_id = closedCategory.id;
+
+    const saved = await upsertGuildSettings(interaction.guildId, patch);
     return respond(interaction, { ...ui.buildSetupSummary(saved), flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2 });
   }
   if (sub === "config") {
