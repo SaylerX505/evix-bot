@@ -23,7 +23,7 @@ src/db/
   events.js                ticket events
 ```
 
-PostgreSQL remains the source of truth for mutable ticket state. Memory is used only for bounded, invalidatable configuration/index data and request coalescing.
+PostgreSQL remains the source of truth for mutable ticket state. Memory is used only for bounded, invalidatable configuration data and request coalescing.
 
 ## Test-first work
 
@@ -40,14 +40,14 @@ PostgreSQL remains the source of truth for mutable ticket state. Memory is used 
 - Migrate legacy alias columns to canonical values once, then remove obsolete columns.
 - Add/retain DB constraints needed by current domain rules, including ticket close behavior.
 - Replace redundant ticket indexes with workload-oriented indexes and deterministic event ordering support.
-- Keep member/event foreign-key indexes.
+- Keep the event lookup/order index and rely on the ticket-members primary key for its leading `ticket_id` lookup; do not maintain redundant duplicate indexes.
 - Keep the per-member ticket-limit transaction lock; use a 64-bit advisory hash to reduce collision risk.
 - Replace settings read/merge/write transaction with an atomic whitelist-based partial UPSERT.
 - Remove unused/dead DB APIs where there are no callers after the audit.
 
 ## Memory strategy
 
-- Guild settings: bounded TTL cache + immediate invalidation after successful write.
+- Guild settings: bounded TTL cache + invalidation after successful write.
 - Panel configuration: bounded TTL cache + invalidation after panel/option mutation.
 - Mutable ticket rows are deliberately not cached. Ticket routing and authorization use fresh PostgreSQL reads; this avoids stale-state risk without reducing the DB reads that valid mutation paths already require.
 - Single-flight identical reads so concurrent requests share one DB query.
