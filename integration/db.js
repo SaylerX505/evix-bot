@@ -53,6 +53,11 @@ test("PostgreSQL migration and workload smoke test", { skip: !databaseUrl }, asy
       "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())",
       [guildId, "OLD-KEY", ticketChannelId, "owner-1", "Legacy", "closed", "legacy-category", "legacy-ticket-log", "legacy-transcript-log"],
     );
+    await pool.query(
+      "INSERT INTO tickets (guild_id,ticket_key,channel_id,owner_id,type_label,status,category_id,created_at) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())",
+      [guildId, "EVX-777777", "evix-integration-valid-key", "owner-legacy-2", "Legacy", "closed", "legacy-category"],
+    );
 
     await initDatabase(databaseUrl);
 
@@ -79,6 +84,17 @@ test("PostgreSQL migration and workload smoke test", { skip: !databaseUrl }, asy
     assert.equal(settings.ticket_category_id, "legacy-category");
     assert.equal(settings.ticket_log_channel_id, "legacy-ticket-log");
     assert.equal(settings.transcript_log_channel_id, "legacy-transcript-log");
+
+    const migratedKeys = await pool.query(
+      "SELECT ticket_key FROM tickets WHERE guild_id=$1 ORDER BY channel_id",
+      [guildId],
+    );
+    assert.equal(migratedKeys.rows[0].ticket_key, "EVX-777777");
+    assert.match(migratedKeys.rows[1].ticket_key, /^EVX-[0-9]{6,}$/);
+
+    await initDatabase(databaseUrl);
+    const rerunMigrations = await pool.query("SELECT version FROM schema_migrations ORDER BY version");
+    assert.deepEqual(rerunMigrations.rows.map((row) => Number(row.version)), [1, 2, 3]);
 
     await Promise.all([
       upsertGuildSettings(guildId, { backup_category_id: "backup-category" }),
