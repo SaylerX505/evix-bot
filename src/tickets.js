@@ -272,7 +272,7 @@ export class TicketService {
     const memberIds = unique([ticket.owner_id, ...(await listTicketMembers(ticket.id))]);
     const results = await Promise.all(memberIds.map(async (userId) => {
       try {
-        const member = await interaction.guild.members.fetch(userId).catch(() => null);
+        const member = interaction.guild.members.cache.get(userId) ?? await interaction.guild.members.fetch(userId).catch(() => null);
         const keepStaffVisible = !view && this.canManageTicket(member, ticket);
         await interaction.channel.permissionOverwrites.edit(userId, {
           ViewChannel: view || keepStaffVisible,
@@ -351,7 +351,7 @@ export class TicketService {
     ticket = await this.getFreshTicket(interaction, ticket);
     if (!this.canClose(interaction.member, ticket)) throw new Error("Only the ticket owner or configured staff can close this ticket.");
     if (ticket.status === "closed") {
-      await this.refreshControlMessage(interaction, ticket, { closed: true, closedBy: ticket.closed_by });
+      await this.refreshControlMessage(interaction, ticket, { closed: true, closedBy: ticket.closed_by, ticketIsFresh: true });
       return respond(interaction, buildActionResult("Ticket Already Closed", "This ticket is already closed. Use the controls on the closed ticket message."));
     }
     if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
