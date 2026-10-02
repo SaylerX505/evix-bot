@@ -62,6 +62,8 @@ const ticketCommand = new SlashCommandBuilder()
     .addChannelOption((o) => channelOption(o, "ticket_channel", "Ticket lifecycle log channel", [ChannelType.GuildText]))
     .addChannelOption((o) => channelOption(o, "moderation_channel", "Moderation log channel", [ChannelType.GuildText]))
     .addChannelOption((o) => channelOption(o, "transcript_channel", "Transcript log channel", [ChannelType.GuildText]))
+    .addBooleanOption((o) => o.setName("clear_moderation_channel").setDescription("Use ticket log as moderation fallback"))
+    .addBooleanOption((o) => o.setName("clear_transcript_channel").setDescription("Use ticket log as transcript fallback"))
     .addBooleanOption((o) => o.setName("disable_ticket").setDescription("Disable ticket lifecycle logs"))
     .addBooleanOption((o) => o.setName("disable_moderation").setDescription("Disable moderation logs"))
     .addBooleanOption((o) => o.setName("disable_transcript").setDescription("Disable transcript logs")))
@@ -164,12 +166,18 @@ export async function handleTicketCommand(interaction, service, ui) {
     const ticketChannel = interaction.options.getChannel("ticket_channel");
     const moderationChannel = interaction.options.getChannel("moderation_channel");
     const transcriptChannel = interaction.options.getChannel("transcript_channel");
+    const clearModeration = interaction.options.getBoolean("clear_moderation_channel") === true;
+    const clearTranscript = interaction.options.getBoolean("clear_transcript_channel") === true;
     const disableTicket = interaction.options.getBoolean("disable_ticket") === true;
     const disableModeration = interaction.options.getBoolean("disable_moderation") === true;
     const disableTranscript = interaction.options.getBoolean("disable_transcript") === true;
     if (disableTicket && ticketChannel) throw new Error("Choose either a ticket log channel or disable ticket logs.");
-    if (disableModeration && moderationChannel) throw new Error("Choose either a moderation log channel or disable moderation logs.");
-    if (disableTranscript && transcriptChannel) throw new Error("Choose either a transcript log channel or disable transcript logs.");
+    if (disableModeration && moderationChannel) throw new Error("Choose either a moderation log channel, clear the channel, or disable moderation logs.");
+    if (disableTranscript && transcriptChannel) throw new Error("Choose either a transcript log channel, clear the channel, or disable transcript logs.");
+    if (clearModeration && moderationChannel) throw new Error("Choose either a moderation log channel or clear the channel.");
+    if (clearTranscript && transcriptChannel) throw new Error("Choose either a transcript log channel or clear the channel.");
+    if (clearModeration && disableModeration) throw new Error("Choose either clear moderation channel or disable moderation logs.");
+    if (clearTranscript && disableTranscript) throw new Error("Choose either clear transcript channel or disable transcript logs.");
 
     const patch = {};
     if (disableTicket) {
@@ -181,12 +189,19 @@ export async function handleTicketCommand(interaction, service, ui) {
     }
     if (disableModeration) {
       patch.moderation_logs_enabled = false;
+    } else if (clearModeration) {
+      patch.moderation_log_channel_id = null;
+      patch.moderation_logs_enabled = true;
     } else if (moderationChannel) {
       patch.moderation_log_channel_id = moderationChannel.id;
       patch.moderation_logs_enabled = true;
     }
     if (disableTranscript) {
       patch.transcript_logs_enabled = false;
+    } else if (clearTranscript) {
+      patch.transcript_log_channel_id = null;
+      patch.transcript_channel_id = null;
+      patch.transcript_logs_enabled = true;
     } else if (transcriptChannel) {
       patch.transcript_log_channel_id = transcriptChannel.id;
       patch.transcript_channel_id = transcriptChannel.id;
