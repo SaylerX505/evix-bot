@@ -576,7 +576,5 @@ test("control refresh falls back to editing the existing message when replacemen
     assert.match(rendered, /Get Transcript/);
     assert.match(rendered, /Reopen/);
     assert.match(rendered, /Delete Ticket/);
-  } finally {
-    service.getFreshTicket = originalFresh;
   }
 });
