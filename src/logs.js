@@ -51,7 +51,7 @@ function footer(guild) {
   return section;
 }
 
-export async function writeTicketLog(guild, ticket, eventType, actorId, details = {}) {
+export async function writeTicketLog(guild, ticket, eventType, actorId, details = {}, files = []) {
   try {
     const label = LOG_EVENT_LABELS.get(eventType);
     if (!label) return false;
@@ -93,6 +93,7 @@ export async function writeTicketLog(guild, ticket, eventType, actorId, details 
           components: [container],
           flags: MessageFlags.IsComponentsV2,
           allowedMentions: { parse: [] },
+          ...(Array.isArray(files) && files.length ? { files } : {}),
         });
         return true;
       } catch (error) {
