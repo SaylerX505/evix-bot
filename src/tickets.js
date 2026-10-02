@@ -587,15 +587,28 @@ export class TicketService {
     ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
     if (ticket.status === "deleted") return respond(interaction, buildActionResult("Ticket Deleted", "This ticket is already deleted."));
-    if (ticket.status !== "closed") ticket = await this.close(interaction, ticket, { reply: false, closedBy: interaction.user.id, backgroundSideEffects: false });
+
+    const previousStatus = ticket.status;
     transitionTicket(ticket.status, "delete");
-    const deleted = await updateTicket(ticket.id, { status: "deleted", deleted_at: new Date() }, { statuses: ["closed"] });
-    if (!deleted) throw new Error("This ticket was changed by another action. Please try again.");
-    try { await interaction.channel.delete("Evix ticket deleted"); }
-    catch (error) {
-      await updateTicket(ticket.id, { status: "closed", deleted_at: null }, { statuses: ["deleted"] }).catch(() => null);
+
+    const deleted = await updateTicket(
+      ticket.id,
+      { status: "deleted", deleted_at: new Date() },
+      { statuses: ["open", "locked", "closed"] },
+    );
+    if (!deleted) throw new Error("This ticket was changed by another action.");
+
+    try {
+      await interaction.channel.delete("Evix ticket deleted");
+    } catch (error) {
+      await updateTicket(
+        ticket.id,
+        { status: previousStatus, deleted_at: null },
+        { statuses: ["deleted"] },
+      ).catch(() => null);
       throw new Error("Ticket deletion failed: " + (error?.message || "channel deletion failed"));
     }
+
     void addTicketEvent(ticket.id, "TICKET_DELETED", interaction.user.id)
       .catch((error) => console.error("[evix-ticket-delete-event-error]", error));
     void writeTicketLog(interaction.guild, deleted, "TICKET_DELETED", interaction.user.id)
