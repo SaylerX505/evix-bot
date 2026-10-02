@@ -162,6 +162,23 @@ test("concurrent delete confirmations are serialized instead of returning ticket
   assert.deepEqual(service.calls, ["delete", "delete"]);
 });
 
+test("transcript button does not acquire the ticket mutation lock", async () => {
+  const interaction = makeTicketButton("evix:t:42:transcript");
+  const service = delayedService({
+    id: 42,
+    owner_id: "different",
+    status: "closed",
+    staff_roles: [],
+  });
+  service.canManageTicket = () => true;
+  service.withTicketActionLock = async () => {
+    throw new Error("transcript must not use mutation lock");
+  };
+
+  await assert.doesNotReject(() => handleInteraction(interaction, { service, ui: {} }));
+  assert.equal(service.calls.includes("transcript"), true);
+});
+
 test("ticket confirmation success followups keep Components V2 and Ephemeral flags", async () => {
   for (const action of ["close", "delete"]) {
     const interaction = makeButton("evix:confirm:42:" + action);
