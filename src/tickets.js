@@ -141,7 +141,7 @@ export class TicketService {
         moderationLogChannelId: option.moderation_log_channel_id || settings.moderation_log_channel_id,
         transcriptChannelId: option.transcript_channel_id || settings.transcript_log_channel_id || settings.transcript_channel_id,
         ticketLogsEnabled: settings.ticket_logs_enabled !== false, moderationLogsEnabled: settings.moderation_logs_enabled !== false, transcriptLogsEnabled: settings.transcript_logs_enabled !== false,
-        ticketLimit: limit, welcomeMessage: storedWelcome, closeBehavior: option.close_behavior || "move", transcriptOnClose: false,
+        ticketLimit: limit, welcomeMessage: storedWelcome, closeBehavior: option.close_behavior || "move",
       });
     } catch (error) {
       await channel.delete("Evix ticket creation compensation").catch(() => null);
