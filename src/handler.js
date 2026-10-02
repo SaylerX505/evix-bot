@@ -201,39 +201,47 @@ export async function handleInteraction(interaction, { service, ui }) {
           return;
         }
 
-        await interaction.deleteReply().catch(() => null);
-
         if (action === "close") {
-          await service.withTicketActionLock(ticket.id, () =>
-            service.close(interaction, ticket, { reply: false, closedBy: interaction.user.id }),
+          await interaction.editReply(
+            buildActionResult("Closing Ticket", "The ticket is being closed now."),
           );
-          await interaction.followUp({
-            ...buildActionResult("Ticket Closed", "This ticket has been closed by <@" + interaction.user.id + ">."),
-            flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
-          }).catch(() => null);
+          try {
+            await service.withTicketActionLock(ticket.id, () =>
+              service.close(interaction, ticket, { reply: false, closedBy: interaction.user.id }),
+            );
+            await interaction.editReply(
+              buildActionResult("Ticket Closed", "This ticket has been closed by <@" + interaction.user.id + ">."),
+            ).catch(() => null);
+          } catch (error) {
+            const normalized = normalizeError(error);
+            logInteractionError(interaction, normalized, error);
+            await interaction.editReply(buildV2ErrorResult(normalized)).catch(() => null);
+          }
           return;
         }
 
-        const deletion = await service.withTicketActionLock(
-          ticket.id,
-          () => service.delete(interaction, ticket, { background: true }),
+        await interaction.editReply(
+          buildActionResult("Deleting Ticket", "The ticket is being removed now."),
         );
-        if (!deletion?.started) return;
-
-        await interaction.followUp({
-          ...buildActionResult("Deleting Ticket", "The ticket has been marked for deletion. The channel is being removed now."),
-          flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
-        }).catch(() => null);
 
         try {
-          await deletion.completion;
+          const deletion = await service.withTicketActionLock(
+            ticket.id,
+            () => service.delete(interaction, ticket, { background: true }),
+          );
+          if (!deletion?.started) {
+            await interaction.editReply(
+              buildActionResult("Ticket Deleted", "This ticket has already been deleted."),
+            ).catch(() => null);
+            return;
+          }
+
+          const completion = deletion.start();
+          await completion;
         } catch (error) {
           const normalized = normalizeError(error);
           logInteractionError(interaction, normalized, error);
-          await interaction.followUp({
-            ...buildErrorResult(normalized),
-            flags: MessageFlags.Ephemeral,
-          }).catch(() => null);
+          await interaction.editReply(buildV2ErrorResult(normalized)).catch(() => null);
         }
       } catch (error) {
         const normalized = normalizeError(error);
