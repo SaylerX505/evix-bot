@@ -144,7 +144,7 @@ export function buildCloseConfirmation(ticket) {
     "Close Ticket Confirmation",
     [
       "Are you sure you want to close this ticket?",
-      "**This action will:**\n> • Remove the ticket creator's access\n> • Rename the channel to `closed-" + ticket.ticket_key + "`\n> • Mark the ticket as closed in the system",
+      "**This action will:**\n> • Remove regular participant access\n> • Rename the channel to `closed-" + ticket.ticket_key + "`\n> • Mark the ticket as closed in the system",
     ],
     0xed4245,
   );
