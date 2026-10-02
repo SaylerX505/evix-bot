@@ -370,25 +370,29 @@ const MIGRATIONS = [
     name: "workload-indexes",
     transactional: false,
     async run(client) {
-      await client.query(`
-        DROP INDEX CONCURRENTLY IF EXISTS tickets_one_active_per_type;
+      await client.query("DROP INDEX CONCURRENTLY IF EXISTS tickets_one_active_per_type");
 
+      await client.query(`
         CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS tickets_one_active_dedupe_idx
           ON tickets (guild_id, owner_id, option_id, dedupe_key)
-          WHERE status = 'open' AND dedupe_key IS NOT NULL;
-
+          WHERE status = 'open' AND dedupe_key IS NOT NULL
+      `);
+      await client.query(`
         CREATE INDEX CONCURRENTLY IF NOT EXISTS tickets_open_owner_option_idx
           ON tickets (guild_id, owner_id, option_id, created_at DESC)
-          WHERE status = 'open';
-
+          WHERE status = 'open'
+      `);
+      await client.query(`
         CREATE INDEX CONCURRENTLY IF NOT EXISTS panels_guild_id_idx
-          ON ticket_panels (guild_id, id);
-
+          ON ticket_panels (guild_id, id)
+      `);
+      await client.query(`
         CREATE INDEX CONCURRENTLY IF NOT EXISTS panel_options_panel_idx
-          ON ticket_panel_options (panel_id);
-
+          ON ticket_panel_options (panel_id)
+      `);
+      await client.query(`
         CREATE INDEX CONCURRENTLY IF NOT EXISTS ticket_events_ticket_created_id_idx
-          ON ticket_events (ticket_id, created_at, id);
+          ON ticket_events (ticket_id, created_at, id)
       `);
 
       await client.query("DROP INDEX CONCURRENTLY IF EXISTS tickets_owner_idx");
