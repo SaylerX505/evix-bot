@@ -257,13 +257,11 @@ async function withTransaction(callback) {
 
 export async function withTicketActionLock(ticketId, callback) {
   const key = String(ticketId);
-  if (ticketActionLocks.has(key)) {
-    const error = new Error("Another action is already being processed for this ticket. Please try again in a moment.");
-    error.code = "EVIX_TICKET_BUSY";
-    throw error;
-  }
+  const previous = ticketActionLocks.get(key) ?? Promise.resolve();
+  const operation = previous
+    .catch(() => null)
+    .then(callback);
 
-  const operation = Promise.resolve().then(callback);
   ticketActionLocks.set(key, operation);
 
   try {
