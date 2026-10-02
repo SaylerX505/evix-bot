@@ -82,8 +82,6 @@ test("control refresh requires fresh ticket state and does not trust stale input
     const rendered = JSON.stringify(edited[0].components.map((component) => component.toJSON()));
     assert.match(rendered, /Get Transcript/);
     assert.doesNotMatch(rendered, /evix:t:41:claim|evix:t:41:close|evix:t:41:info/);
-  } finally {
-    service.getFreshTicket = originalFresh;
   }
 });
 
@@ -547,8 +545,6 @@ test("control refresh falls back to editing the existing message when replacemen
       edited.push(payload);
     },
   };
-  const originalFresh = service.getFreshTicket;
-  service.getFreshTicket = async () => ticket;
   const channel = {
     isTextBased: () => true,
     messages: {
@@ -575,7 +571,7 @@ test("control refresh falls back to editing the existing message when replacemen
   };
 
   try {
-    await service.refreshControlMessage(interaction, ticket, { replace: true });
+    await service.refreshControlMessage(interaction, ticket, { replace: true, useProvidedState: true });
 
     assert.equal(edited.length, 1);
     const rendered = JSON.stringify(edited[0].components.map((component) => component.toJSON()));
