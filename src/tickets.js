@@ -223,9 +223,16 @@ export class TicketService {
         }
 
         if (oldMessageId && oldMessageId !== newMessage.id) {
-          await channel.messages.delete(oldMessageId, "Evix replaced ticket control view").catch((error) => {
+          try {
+            await channel.messages.delete(oldMessageId, "Evix replaced ticket control view");
+          } catch (error) {
             console.error("[evix-ticket-control-old-message-delete-error]", error);
-          });
+            if (message) {
+              await message.edit(payload).catch((fallbackError) => {
+                console.error("[evix-ticket-control-old-message-disable-error]", fallbackError);
+              });
+            }
+          }
         }
         return next;
       } catch (error) {
