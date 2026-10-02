@@ -275,10 +275,12 @@ export class TicketService {
     const memberIds = unique([ticket.owner_id, ...(await listTicketMembers(ticket.id))]);
     const results = await Promise.all(memberIds.map(async (userId) => {
       try {
+        const member = await interaction.guild.members.fetch(userId).catch(() => null);
+        const keepStaffVisible = !view && this.canManageTicket(member, ticket);
         await interaction.channel.permissionOverwrites.edit(userId, {
-          ViewChannel: view,
+          ViewChannel: view || keepStaffVisible,
           SendMessages: send,
-          ReadMessageHistory: view,
+          ReadMessageHistory: view || keepStaffVisible,
         });
         return { userId, ok: true };
       } catch (error) {
