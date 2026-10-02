@@ -381,6 +381,9 @@ const MIGRATIONS = [
           ON tickets (guild_id, owner_id, option_id, created_at DESC)
           WHERE status = 'open';
 
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS panels_guild_id_idx
+          ON ticket_panels (guild_id, id);
+
         CREATE INDEX CONCURRENTLY IF NOT EXISTS ticket_events_ticket_created_id_idx
           ON ticket_events (ticket_id, created_at, id);
       `);
