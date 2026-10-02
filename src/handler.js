@@ -184,51 +184,39 @@ export async function handleInteraction(interaction, { service, ui }) {
       if (!match) throw new Error("Invalid confirmation action.");
       const [, ticketId, action] = match;
 
-      // Acknowledge immediately; database/API work must not consume Discord's interaction window.
       await interaction.deferUpdate();
       deferredComponentUpdate = true;
 
+      if (action === "keep-open" || action === "cancel") {
+        await interaction.deleteReply().catch(() => null);
+        return;
+      }
+
       try {
-        const ticket = await service.getTicket(interaction, ticketId);
-        const canManage = service.canManageTicket(interaction.member, ticket);
-        const canClose = service.canClose(interaction.member, ticket);
-        if (!canManage && !((action === "close" || action === "keep-open") && canClose)) {
-          throw new Error("You are not authorized to confirm this action.");
-        }
+        await service.withTicketActionLock(ticketId, async () => {
+          const ticket = await service.getTicket(interaction, ticketId);
+          const canManage = service.canManageTicket(interaction.member, ticket);
+          const canClose = service.canClose(interaction.member, ticket);
+          if (!canManage && !((action === "close") && canClose)) {
+            throw new Error("You are not authorized to confirm this action.");
+          }
 
-        if (action === "keep-open" || action === "cancel") {
-          await interaction.deleteReply().catch(() => null);
-          return;
-        }
-
-        if (action === "close") {
-          await interaction.editReply(
-            buildActionResult("Closing Ticket", "The ticket is being closed now."),
-          );
-          try {
-            await service.withTicketActionLock(ticket.id, () =>
-              service.close(interaction, ticket, { reply: false, closedBy: interaction.user.id }),
+          if (action === "close") {
+            await interaction.editReply(
+              buildActionResult("Closing Ticket", "The ticket is being closed now."),
             );
+            await service.close(interaction, ticket, { reply: false, closedBy: interaction.user.id });
             await interaction.editReply(
               buildActionResult("Ticket Closed", "This ticket has been closed by <@" + interaction.user.id + ">."),
             ).catch(() => null);
-          } catch (error) {
-            const normalized = normalizeError(error);
-            logInteractionError(interaction, normalized, error);
-            await interaction.editReply(buildV2ErrorResult(normalized)).catch(() => null);
+            return;
           }
-          return;
-        }
 
-        await interaction.editReply(
-          buildActionResult("Deleting Ticket", "The ticket is being removed now."),
-        );
-
-        try {
-          const deletion = await service.withTicketActionLock(
-            ticket.id,
-            () => service.delete(interaction, ticket, { background: true }),
+          await interaction.editReply(
+            buildActionResult("Deleting Ticket", "The ticket is being removed now."),
           );
+
+          const deletion = await service.delete(interaction, ticket, { background: true });
           if (!deletion?.started) {
             await interaction.editReply(
               buildActionResult("Ticket Deleted", "This ticket has already been deleted."),
@@ -236,21 +224,12 @@ export async function handleInteraction(interaction, { service, ui }) {
             return;
           }
 
-          const completion = deletion.start();
-          await completion;
-        } catch (error) {
-          const normalized = normalizeError(error);
-          logInteractionError(interaction, normalized, error);
-          await interaction.editReply(buildV2ErrorResult(normalized)).catch(() => null);
-        }
+          await deletion.start();
+        });
       } catch (error) {
         const normalized = normalizeError(error);
         logInteractionError(interaction, normalized, error);
-        await interaction.deleteReply().catch(() => null);
-        await interaction.followUp({
-          ...buildErrorResult(normalized),
-          flags: MessageFlags.Ephemeral,
-        }).catch(() => null);
+        await interaction.editReply(buildV2ErrorResult(normalized)).catch(() => null);
       }
       return;
     }
@@ -260,29 +239,35 @@ export async function handleInteraction(interaction, { service, ui }) {
       if (!match) throw new Error("Invalid ticket control.");
       const [, ticketId, action] = match;
 
-      {
-        const ephemeralActions = new Set(["close", "delete", "transcript"]);
-        await interaction.deferReply({
-          flags: ephemeralActions.has(action) ? MessageFlags.Ephemeral : 0,
-        });
+      const ephemeralActions = new Set(["close", "delete", "transcript"]);
+      await interaction.deferReply({
+        flags: ephemeralActions.has(action) ? MessageFlags.Ephemeral : 0,
+      });
+
+      if (["close", "delete", "info"].includes(action)) {
+        const ticket = await service.getTicket(interaction, ticketId);
+        const ownerAllowed = ticket.owner_id === interaction.user.id && ["close", "info"].includes(action);
+        if (!service.canManageTicket(interaction.member, ticket) && !ownerAllowed) {
+          throw new Error("You are not authorized to use this ticket control.");
+        }
+        if (action === "close") return await service.requestClose(interaction, ticket);
+        if (action === "delete") return await service.requestDelete(interaction, ticket);
+        return await service.info(interaction, ticket);
       }
 
-      const ticket = await service.getTicket(interaction, ticketId);
-      const ownerAllowed = ticket.owner_id === interaction.user.id && ["close", "info"].includes(action);
-      if (!service.canManageTicket(interaction.member, ticket) && !ownerAllowed) throw new Error("You are not authorized to use this ticket control.");
-
-      if (action === "close") return await service.requestClose(interaction, ticket);
-      if (action === "delete") return await service.requestDelete(interaction, ticket);
-      if (action === "info") return await service.info(interaction, ticket);
-
-      const mutate = (callback) => service.withTicketActionLock(ticket.id, callback);
-      switch (action) {
-        case "claim": return await mutate(() => service.claim(interaction, ticket));
-        case "unclaim": return await mutate(() => service.unclaim(interaction, ticket));
-        case "reopen": return await mutate(() => service.reopen(interaction, ticket));
-        case "transcript": return await mutate(() => service.sendTranscript(interaction, ticket));
-        default: throw new Error("Unsupported ticket control.");
-      }
+      return await service.withTicketActionLock(ticketId, async () => {
+        const ticket = await service.getTicket(interaction, ticketId);
+        if (!service.canManageTicket(interaction.member, ticket)) {
+          throw new Error("You are not authorized to use this ticket control.");
+        }
+        switch (action) {
+          case "claim": return service.claim(interaction, ticket);
+          case "unclaim": return service.unclaim(interaction, ticket);
+          case "reopen": return service.reopen(interaction, ticket);
+          case "transcript": return service.sendTranscript(interaction, ticket);
+          default: throw new Error("Unsupported ticket control.");
+        }
+      });
     }
 
 
