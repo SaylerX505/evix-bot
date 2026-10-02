@@ -371,7 +371,7 @@ export class TicketService {
   async close(interaction, ticket, { reply = true, closedBy = null, backgroundSideEffects = true } = {}) {
     if (!this.canClose(interaction.member, ticket)) throw new Error("Only the ticket owner or configured staff can close this ticket.");
     if (ticket.status === "closed") {
-      await this.refreshControlMessage(interaction, ticket, { closed: true, closedBy: ticket.closed_by });
+      await this.refreshControlMessage(interaction, ticket, { closed: true, closedBy: ticket.closed_by, useProvidedState: true });
       if (reply) {
         await respond(interaction, buildActionResult("Ticket Already Closed", "This ticket is already closed. Use the controls on the closed ticket message."));
       }
@@ -734,7 +734,7 @@ export class TicketService {
           await this.refreshControlMessage(
             interaction,
             restored,
-            { replace: true, fallbackToKnownState: true },
+            { replace: true, fallbackToKnownState: true, useProvidedState: true },
           ).catch((refreshError) => {
             console.error("[evix-ticket-delete-rollback-control-error]", refreshError);
           });
