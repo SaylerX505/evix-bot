@@ -246,6 +246,13 @@ test("reopen rolls back participant access when the DB transition fails", async 
     guildId: "guild",
     channel: {
       parentId: "category-1",
+      guild: {
+        channels: {
+          fetch: async (id) => id === "category-1"
+            ? { id: "category-1", type: 4 }
+            : null,
+        },
+      },
       permissionOverwrites: {
         edit: async (userId, options) => {
           if (options.ViewChannel === false) rollbacks.push("owner-permission-rollback:" + userId);
