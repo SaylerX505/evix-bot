@@ -194,7 +194,7 @@ export async function handleInteraction(interaction, { service, ui }) {
 
         if (action === "close") {
           await service.withTicketActionLock(ticketId, async () => {
-            const ticket = await service.getTicket(interaction, ticketId);
+            const ticket = await service.getFreshTicket(interaction, { id: ticketId });
             if (!service.canClose(interaction.member, ticket)) {
               throw new Error("You are not authorized to confirm this action.");
             }
