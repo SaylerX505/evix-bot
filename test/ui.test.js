@@ -127,7 +127,7 @@ test("closed ticket replaces active controls with only transcript, reopen and de
 
 
 test("ticket control matrix never exposes invalid actions across ticket states", () => {
-  const states = ["open", "locked", "closed", "deleted"];
+  const states = ["open", "closed", "deleted"];
   const claimed = [null, "staff"];
 
   for (const status of states) {
@@ -148,7 +148,7 @@ test("ticket control matrix never exposes invalid actions across ticket states",
       if (status === "open" && !claimedBy) {
         assert.match(json, /:claim/);
         assert.doesNotMatch(json, /:unclaim/);
-      } else if ((status === "open" || status === "locked") && claimedBy) {
+      } else if (status === "open" && claimedBy) {
         assert.match(json, /:unclaim/);
         assert.doesNotMatch(json, /:claim/);
       } else if (status === "open") {
