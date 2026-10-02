@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
-import { addPanelOption, closeDatabase, initDatabase, updatePanel, updatePanelOption, updateTicket, upsertGuildSettings, withTicketActionLock } from "../src/db.js";
+import { addPanelOption, closeDatabase, createPanel, initDatabase, updatePanel, updatePanelOption, updateTicket, upsertGuildSettings, withTicketActionLock } from "../src/db.js";
 
 test("database update builders emit valid PostgreSQL placeholders", async () => {
   const queries = [];
@@ -112,6 +112,51 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
   } finally {
     pg.Pool.prototype.query = originalQuery;
     pg.Pool.prototype.end = originalEnd;
+    pg.Pool.prototype.connect = originalConnect;
+    await closeDatabase();
+  }
+});
+
+
+test("createPanel inserts its default option with matching SQL columns and values", async () => {
+  const originalQuery = pg.Pool.prototype.query;
+  const originalConnect = pg.Pool.prototype.connect;
+  const calls = [];
+  pg.Pool.prototype.query = async function(text, params) {
+    calls.push({ text, params });
+    return { rows: [] };
+  };
+  pg.Pool.prototype.connect = async function() {
+    return {
+      query: async (text, params) => {
+        calls.push({ text, params });
+        if (text === "BEGIN" || text === "COMMIT" || text === "ROLLBACK") return { rows: [] };
+        if (text.startsWith("INSERT INTO ticket_panels")) return { rows: [{ id: 9, name: "Support" }] };
+        if (text.startsWith("INSERT INTO ticket_panel_options")) {
+          return { rows: [{ id: 10, panel_id: 9, label: "Open Ticket", action: "CREATE_TICKET" }] };
+        }
+        if (text.startsWith("SELECT * FROM ticket_panel_options")) {
+          return { rows: [{ id: 10, panel_id: 9, label: "Open Ticket", action: "CREATE_TICKET" }] };
+        }
+        throw new Error("Unexpected createPanel query: " + text);
+      },
+      release() {},
+    };
+  };
+
+  try {
+    await initDatabase("postgres://evix:test@localhost/evix");
+    calls.length = 0;
+
+    const panel = await createPanel({ guildId: "guild", name: "Support", withDefaultOption: true });
+    const optionInsert = calls.find((entry) => entry.text.startsWith("INSERT INTO ticket_panel_options"));
+    assert.ok(optionInsert);
+    assert.match(optionInsert.text, /'move',FALSE,2,'\[\]'::jsonb\) RETURNING \*/);
+    assert.equal(optionInsert.params.length, 1);
+    assert.equal(optionInsert.params[0], 9);
+    assert.deepEqual(panel.options, [{ id: 10, panel_id: 9, label: "Open Ticket", action: "CREATE_TICKET" }]);
+  } finally {
+    pg.Pool.prototype.query = originalQuery;
     pg.Pool.prototype.connect = originalConnect;
     await closeDatabase();
   }
