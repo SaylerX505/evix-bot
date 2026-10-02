@@ -43,7 +43,7 @@ function isMissingDiscordChannelError(error) {
   return String(error?.code || error?.rawError?.code || "") === "10003";
 }
 
-function assertTicketChannel(interaction, ticket) {
+export function assertTicketChannel(interaction, ticket) {
   if (interaction?.channelId && String(ticket?.channel_id) !== String(interaction.channelId)) {
     throw new Error("This ticket is not available in the current channel.");
   }
