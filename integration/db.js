@@ -138,7 +138,7 @@ test("PostgreSQL migration and workload smoke test", { skip: !databaseUrl }, asy
 
     const indexes = await pool.query("SELECT indexname FROM pg_indexes WHERE schemaname=current_schema() AND tablename IN ('tickets','ticket_events','ticket_panels') ORDER BY indexname");
     const indexNames = new Set(indexes.rows.map((row) => row.indexname));
-    assert.equal(indexNames.has("tickets_open_owner_option_idx"), true);
+    assert.equal(indexNames.has("tickets_open_owner_option_created_id_idx"), true);
     assert.equal(indexNames.has("ticket_events_ticket_created_id_idx"), true);
     assert.equal(indexNames.has("panels_guild_id_idx"), true);
     assert.equal(indexNames.has("tickets_owner_idx"), false);
