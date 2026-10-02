@@ -84,6 +84,7 @@ export class TicketService {
     if (ticketId !== null && String(ticket.id) !== String(ticketId)) {
       throw new Error("This ticket is not available in the current channel.");
     }
+    assertTicketChannel(interaction, ticket);
     Object.defineProperty(ticket, FRESH_TICKET, { value: true });
     return ticket;
   }
