@@ -42,7 +42,7 @@ function serviceFor(ticket) {
     canClose: (member, current) => member.id === current.owner_id,
     withTicketActionLock: async (_ticketId, callback) => callback(),
     close: async () => { calls.push("close"); },
-    delete: async () => { calls.push("delete"); },
+    delete: async () => ({ started: true, completion: Promise.resolve() }),
   };
 }
 
@@ -154,6 +154,7 @@ test("concurrent delete confirmations are serialized instead of returning ticket
     await new Promise((resolve) => setTimeout(resolve, 10));
     running -= 1;
     service.calls.push("delete");
+    return { started: true, completion: Promise.resolve() };
   };
 
   await Promise.all(interactions.map((interaction) => handleInteraction(interaction, { service, ui: {} })));
@@ -179,7 +180,7 @@ test("delete confirmation acknowledges deletion before the channel deletion prom
   });
 
   const running = handleInteraction(interaction, { service, ui: {} });
-  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setTimeout(resolve, 30));
   assert.deepEqual(interaction.calls, ["deferUpdate", "deleteReply", "followUp"]);
   assert.match(JSON.stringify(interaction.followUpPayload.components.map((component) => component.toJSON())), /Deleting Ticket/);
 
