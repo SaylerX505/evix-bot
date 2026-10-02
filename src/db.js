@@ -206,14 +206,14 @@ export async function initDatabase(databaseUrl) {
     DROP INDEX IF EXISTS tickets_one_active_per_type;
     CREATE UNIQUE INDEX IF NOT EXISTS tickets_one_active_dedupe_idx
       ON tickets (guild_id, owner_id, option_id, dedupe_key)
-      WHERE status IN ('open','locked') AND dedupe_key IS NOT NULL;
+      WHERE status = 'open' AND dedupe_key IS NOT NULL;
 
     ALTER TABLE tickets DROP CONSTRAINT IF EXISTS tickets_status_check;
     UPDATE tickets SET status = 'open' WHERE status = 'waiting';
     ALTER TABLE guild_ticket_settings DROP COLUMN IF EXISTS waiting_category_id;
     ALTER TABLE tickets DROP COLUMN IF EXISTS waiting_at;
     ALTER TABLE tickets ADD CONSTRAINT tickets_status_check
-      CHECK (status IN ('open','locked','closed','deleted'));
+      CHECK (status IN ('open','closed','deleted'));
 
     ALTER TABLE ticket_panels DROP CONSTRAINT IF EXISTS ticket_panels_component_mode_check;
     ALTER TABLE ticket_panels ADD CONSTRAINT ticket_panels_component_mode_check
@@ -566,7 +566,7 @@ export async function getTicketByChannel(guildId, channelId) {
 
 export async function getOpenTicketForUser(guildId, ownerId, optionId) {
   const { rows } = await query(
-    "SELECT * FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND option_id=$3 AND status IN ('open','locked') ORDER BY created_at DESC LIMIT 1",
+    "SELECT * FROM tickets WHERE guild_id=$1 AND owner_id=$2 AND option_id=$3 AND status = 'open' ORDER BY created_at DESC LIMIT 1",
     [guildId, ownerId, optionId],
   );
   return rows[0] ?? null;
