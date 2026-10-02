@@ -320,6 +320,22 @@ export class TicketService {
     return { changed, failed };
   }
 
+  async restoreParticipantPermissions(interaction, ticket, userIds, { view = false, send = false } = {}) {
+    await Promise.all(
+      unique(userIds).map(async (userId) => {
+        const member = interaction.guild.members.cache.get(userId) ?? await interaction.guild.members.fetch(userId).catch(() => null);
+        const keepStaffVisible = !view && this.canManageTicket(member, ticket);
+        await interaction.channel.permissionOverwrites.edit(userId, {
+          ViewChannel: view || keepStaffVisible,
+          SendMessages: send,
+          ReadMessageHistory: view || keepStaffVisible,
+        }).catch((error) => {
+          console.error("[evix-participant-permission-restore-error]", { userId, error });
+        });
+      }),
+    );
+  }
+
   async claim(interaction, ticket) {
     ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
@@ -510,17 +526,10 @@ export class TicketService {
     try {
       await moveTicketChannel(interaction.channel, target.category.id);
     } catch (error) {
-      if (permissions.changed.length) {
-        await Promise.all(
-          permissions.changed.map((userId) =>
-            interaction.channel.permissionOverwrites.edit(userId, {
-              ViewChannel: false,
-              SendMessages: false,
-              ReadMessageHistory: false,
-            }).catch(() => null),
-          ),
-        );
-      }
+      await this.restoreParticipantPermissions(interaction, ticket, permissions.changed, {
+        view: false,
+        send: false,
+      });
       throw new Error("Ticket reopen routing failed: " + (error?.message || "ticket category unavailable"));
     }
 
@@ -543,17 +552,10 @@ export class TicketService {
       if (String(target.category.id) !== String(previousCategoryId || "")) {
         await moveTicketChannel(interaction.channel, previousCategoryId).catch(() => null);
       }
-      if (permissions.changed.length) {
-        await Promise.all(
-          permissions.changed.map((userId) =>
-            interaction.channel.permissionOverwrites.edit(userId, {
-              ViewChannel: false,
-              SendMessages: false,
-              ReadMessageHistory: false,
-            }).catch(() => null),
-          ),
-        );
-      }
+      await this.restoreParticipantPermissions(interaction, ticket, permissions.changed, {
+        view: false,
+        send: false,
+      });
       throw error;
     }
 
@@ -561,17 +563,10 @@ export class TicketService {
       if (String(target.category.id) !== String(previousCategoryId || "")) {
         await moveTicketChannel(interaction.channel, previousCategoryId).catch(() => null);
       }
-      if (permissions.changed.length) {
-        await Promise.all(
-          permissions.changed.map((userId) =>
-            interaction.channel.permissionOverwrites.edit(userId, {
-              ViewChannel: false,
-              SendMessages: false,
-              ReadMessageHistory: false,
-            }).catch(() => null),
-          ),
-        );
-      }
+      await this.restoreParticipantPermissions(interaction, ticket, permissions.changed, {
+        view: false,
+        send: false,
+      });
       throw new Error("This ticket was changed by another action. Please try again.");
     }
 
