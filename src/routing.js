@@ -57,6 +57,15 @@ export async function moveTicketChannel(channel, categoryId) {
   return category;
 }
 
+export async function findTicketReopenCategory(guild, categoryIds, currentCategoryId) {
+  const candidates = unique(categoryIds);
+  if (currentCategoryId && candidates.some((id) => String(id) === String(currentCategoryId))) {
+    const current = await getCategory(guild, currentCategoryId);
+    if (current) return { category: current, failures: [] };
+  }
+  return findTicketCreationCategory(guild, candidates);
+}
+
 export function categoryCandidates(primary, backup) {
   return unique([primary, backup]);
 }
