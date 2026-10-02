@@ -60,11 +60,8 @@ export async function writeTicketLog(guild, ticket, eventType, actorId, details 
     if (route === "ticket" && ticket.ticket_logs_enabled === false) return false;
     if (route === "moderation" && ticket.moderation_logs_enabled === false) return false;
     if (route === "transcript" && ticket.transcript_logs_enabled === false) return false;
-    const channelId = channelCandidates(ticket, route).find(Boolean);
-    if (!channelId) return false;
-
-    const channel = await guild.channels.fetch(channelId).catch(() => null);
-    if (!channel?.isTextBased?.()) return false;
+    const channelIds = [...new Set(channelCandidates(ticket, route).filter(Boolean).map(String))];
+    if (!channelIds.length) return false;
 
     const lines = [
       "# " + label,
@@ -88,12 +85,21 @@ export async function writeTicketLog(guild, ticket, eventType, actorId, details 
       )
       .addSectionComponents(footer(guild));
 
-    await channel.send({
-      components: [container],
-      flags: MessageFlags.IsComponentsV2,
-      allowedMentions: { parse: [] },
-    });
-    return true;
+    for (const channelId of channelIds) {
+      const channel = await guild.channels.fetch(channelId).catch(() => null);
+      if (!channel?.isTextBased?.()) continue;
+      try {
+        await channel.send({
+          components: [container],
+          flags: MessageFlags.IsComponentsV2,
+          allowedMentions: { parse: [] },
+        });
+        return true;
+      } catch (error) {
+        console.error("[evix-ticket-log-channel-send-error]", { channelId, error });
+      }
+    }
+    return false;
   } catch (error) {
     console.error("[evix-ticket-log-error]", error);
     return false;
