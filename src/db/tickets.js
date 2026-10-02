@@ -17,6 +17,11 @@ export async function withTicketActionLock(ticketId, callback) {
   }
 }
 
+export function clearTicketActionLocks() {
+  ticketActionLocks.clear();
+}
+
+
 export async function getTicketByChannel(guildId, channelId) {
   const { rows } = await query(
     "SELECT * FROM tickets WHERE guild_id=$1 AND channel_id=$2",
