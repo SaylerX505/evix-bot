@@ -89,7 +89,7 @@ Existing ticket options can still contain stored modal fields for backward compa
 
 ## UI
 
-Evix uses Discord Components V2 with Containers, Text Displays, Separators, Buttons, Select Menus, and Action Rows for the panel and ticket views. Components V2 messages use the `MessageFlags.IsComponentsV2` flag; normal content/embeds are not mixed into those V2 messages.
+Evix uses Discord Components V2 with Containers, Text Displays, Separators, Buttons, Select Menus, and Action Rows for the panel and ticket views. Ticket panels themselves currently use dropdown/select menus; ticket lifecycle views use buttons where an action is available. Components V2 messages use the `MessageFlags.IsComponentsV2` flag; normal content/embeds are not mixed into those V2 messages.
 
 ## Safety and lifecycle
 
