@@ -722,7 +722,38 @@ export class TicketService {
     return respond(interaction, buildDeleteConfirmation(ticket));
   }
 
-  async delete(interaction, ticket) {
+  async finalizeDelete(interaction, deleted, previousStatus) {
+    try {
+      await interaction.channel.delete("Evix ticket deleted");
+    } catch (error) {
+      const restored = await updateTicket(
+        deleted.id,
+        { status: previousStatus, deleted_at: null },
+        { statuses: ["deleted"] },
+      ).catch(() => null);
+
+      if (restored) {
+        await this.refreshControlMessage(
+          interaction,
+          restored,
+          { replace: true, fallbackToKnownState: true },
+        ).catch((refreshError) => {
+          console.error("[evix-ticket-delete-rollback-control-error]", refreshError);
+        });
+      }
+
+      throw new Error("Ticket deletion failed: " + (error?.message || "channel deletion failed"));
+    }
+
+    void addTicketEvent(deleted.id, "TICKET_DELETED", interaction.user.id)
+      .catch((error) => console.error("[evix-ticket-delete-event-error]", error));
+    void writeTicketLog(interaction.guild, deleted, "TICKET_DELETED", interaction.user.id)
+      .catch((error) => console.error("[evix-ticket-delete-log-error]", error));
+
+    return deleted;
+  }
+
+  async delete(interaction, ticket, { background = false } = {}) {
     ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
     if (ticket.status === "deleted") return respond(interaction, buildActionResult("Ticket Deleted", "This ticket is already deleted."));
@@ -737,21 +768,13 @@ export class TicketService {
     );
     if (!deleted) throw new Error("This ticket was changed by another action.");
 
-    try {
-      await interaction.channel.delete("Evix ticket deleted");
-    } catch (error) {
-      await updateTicket(
-        ticket.id,
-        { status: previousStatus, deleted_at: null },
-        { statuses: ["deleted"] },
-      ).catch(() => null);
-      throw new Error("Ticket deletion failed: " + (error?.message || "channel deletion failed"));
+    const completion = this.finalizeDelete(interaction, deleted, previousStatus);
+    if (background) {
+      return { started: true, ticket: deleted, completion };
     }
 
-    void addTicketEvent(ticket.id, "TICKET_DELETED", interaction.user.id)
-      .catch((error) => console.error("[evix-ticket-delete-event-error]", error));
-    void writeTicketLog(interaction.guild, deleted, "TICKET_DELETED", interaction.user.id)
-      .catch((error) => console.error("[evix-ticket-delete-log-error]", error));
+    await completion;
+    return deleted;
   }
 
   async handleChannelDelete(channel) {
