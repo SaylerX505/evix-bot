@@ -2,7 +2,7 @@ import { ChannelType, MessageFlags, PermissionFlagsBits } from "discord.js";
 import { addTicketEvent, addTicketMember, createTicket, getGuildSettings, getOpenTicketForUser, getTicketByChannel, getTicketById, listTicketMembers, removeTicketMember, updateTicket, withTicketActionLock } from "./db.js";
 import { writeTicketLog } from "./logs.js";
 import { buildActionResult, buildClaimResult, buildClosedTicketView, buildDeleteConfirmation, buildInfoView, buildTicketView, buildCloseConfirmation } from "./ui.js";
-import { buildTranscript, transcriptAttachment } from "./transcript.js";
+import { buildTranscript } from "./transcript.js";
 import { transitionTicket } from "./state.js";
 import { categoryCandidates, findTicketCreationCategory, findTicketReopenCategory, moveTicketChannel } from "./routing.js";
 import { formatDuration, isStaff, renderTemplate, sanitizeChannelName, unique, validateModalFields } from "./utils.js";
