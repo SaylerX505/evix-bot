@@ -70,6 +70,7 @@ export class MemoryCache {
   clear() {
     this.entries.clear();
     this.epoch += 1;
+    this.generations.clear();
   }
 
   get size() {
