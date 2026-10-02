@@ -14,6 +14,10 @@ import { logInteractionError, normalizeError } from "./errors.js";
 import { buildRenameModal, buildTicketModal, handlePanelAutocomplete, handlePanelCommand, handleTicketCommand } from "./commands.js";
 import { validateModalFields } from "./utils.js";
 
+function modalTextValue(fields, customId) {
+  return fields?.fields?.get(customId)?.value ?? "";
+}
+
 async function replySafely(interaction, payload) {
   if (interaction.deferred || interaction.replied) return interaction.editReply(payload);
   return interaction.reply(payload);
@@ -80,8 +84,8 @@ export async function handleInteraction(interaction, { service, ui }) {
       const fields = validateModalFields(option.modal_fields ?? []);
       const formValues = {};
       for (const field of fields) {
-        const value = interaction.fields.getTextInputValue(field.id);
-        if (value?.trim()) formValues[field.id] = value;
+        const value = modalTextValue(interaction.fields, field.id);
+        if (value.trim()) formValues[field.id] = value;
       }
       await service.createFromOption(interaction, option, formValues);
       return;
@@ -93,14 +97,14 @@ export async function handleInteraction(interaction, { service, ui }) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) throw new Error("You need Manage Server to edit ticket panels.");
       const draft = await requirePanelDraft(interaction, match[1]);
       if (match[2] === "basic") {
-        draft.name = interaction.fields.getTextInputValue("name").trim();
-        draft.title = interaction.fields.getTextInputValue("title").trim();
-        draft.description = interaction.fields.getTextInputValue("description").trim();
+        draft.name = modalTextValue(interaction.fields, "name").trim();
+        draft.title = modalTextValue(interaction.fields, "title").trim();
+        draft.description = modalTextValue(interaction.fields, "description").trim();
         draft.footer = "";
         draft.footer_show_bot = false;
       } else {
         const uploaded = interaction.fields.getUploadedFiles("image_file", false)?.first?.();
-        const imageUrl = uploaded?.url || interaction.fields.getTextInputValue("image_url")?.trim() || "";
+        const imageUrl = uploaded?.url || modalTextValue(interaction.fields, "image_url").trim() || "";
         draft.image_url = imageUrl || null;
       }
       setPanelDraft(interaction.guildId, interaction.user.id, match[1], draft);
