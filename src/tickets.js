@@ -363,7 +363,7 @@ export class TicketService {
     await respond(interaction, buildClaimResult(next));
     void addTicketEvent(ticket.id, "TICKET_CLAIMED", interaction.user.id)
       .catch((error) => console.error("[evix-ticket-claim-event-error]", error));
-    void this.refreshControlMessage(interaction, next, { fallbackToKnownState: true })
+    void this.refreshControlMessage(interaction, next, { fallbackToKnownState: true, ticketIsFresh: true })
       .catch((error) => console.error("[evix-ticket-refresh-after-claim-error]", error));
     void writeTicketLog(interaction.guild, next, "TICKET_CLAIMED", interaction.user.id)
       .catch((error) => console.error("[evix-ticket-claim-log-error]", error));
@@ -390,7 +390,7 @@ export class TicketService {
     ticket = await this.getFreshTicket(interaction, ticket);
     if (!this.canClose(interaction.member, ticket)) throw new Error("Only the ticket owner or configured staff can close this ticket.");
     if (ticket.status === "closed") {
-      await this.refreshControlMessage(interaction, ticket, { closed: true, closedBy: ticket.closed_by });
+      await this.refreshControlMessage(interaction, ticket, { closed: true, closedBy: ticket.closed_by, ticketIsFresh: true });
       return respond(interaction, buildActionResult("Ticket Already Closed", "This ticket is already closed. Use the controls on the closed ticket message."));
     }
     if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
