@@ -58,6 +58,32 @@ test("global cache clear invalidates in-flight loads", async () => {
   assert.equal(cache.get("guild"), undefined);
 });
 
+test("cache invalidation prevents new callers from joining an obsolete flight", async () => {
+  const cache = new MemoryCache({ maxEntries: 8, ttlMs: 1_000 });
+  let releaseFirst;
+  const firstGate = new Promise((resolve) => { releaseFirst = resolve; });
+  let calls = 0;
+
+  const first = getCached(cache, "guild", async () => {
+    calls += 1;
+    await firstGate;
+    return { value: "stale" };
+  });
+
+  cache.invalidate("guild");
+
+  const second = getCached(cache, "guild", async () => {
+    calls += 1;
+    return { value: "fresh" };
+  });
+
+  assert.deepEqual(await second, { value: "fresh" });
+  releaseFirst();
+  assert.deepEqual(await first, { value: "stale" });
+  assert.equal(calls, 2);
+  assert.deepEqual(cache.get("guild"), { value: "fresh" });
+});
+
 test("single-flight collapses concurrent identical loads into one operation", async () => {
   let calls = 0;
   const promises = [
