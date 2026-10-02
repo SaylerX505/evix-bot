@@ -117,13 +117,16 @@ test("ticket control refreshes are serialized per ticket", async () => {
   const claimed = { ...ticketBase, claimed_by: "staff" };
   const unclaimed = { ...ticketBase, claimed_by: null };
 
-  await Promise.all([
-    service.refreshControlMessage(interaction, claimed, { welcomeOverride: "FIRST" }),
-    service.refreshControlMessage(interaction, unclaimed, { welcomeOverride: "SECOND" }),
-  ]);
+  try {
+    await Promise.all([
+      service.refreshControlMessage(interaction, claimed, { welcomeOverride: "FIRST" }),
+      service.refreshControlMessage(interaction, unclaimed, { welcomeOverride: "SECOND" }),
+    ]);
 
-  assert.deepEqual(events, ["first-start", "first-end", "second-start", "second-end"]);
-  service.getFreshTicket = originalFresh;
+    assert.deepEqual(events, ["first-start", "first-end", "second-start", "second-end"]);
+  } finally {
+    service.getFreshTicket = originalFresh;
+  }
 });
 
 
@@ -159,15 +162,18 @@ test("closed ticket refresh always renders the closed control view", async () =>
   };
 
   service.getFreshTicket = async () => closedTicket;
-  await service.refreshControlMessage(interaction, closedTicket);
+  try {
+    await service.refreshControlMessage(interaction, closedTicket);
 
-  assert.equal(edited.length, 1);
-  const rendered = JSON.stringify(edited[0].components.map((component) => component.toJSON()));
-  assert.equal(rendered.includes("Ticket Closed"), true);
-  assert.equal(rendered.includes("Get Transcript"), true);
-  assert.equal(rendered.includes("Reopen"), true);
-  assert.equal(rendered.includes("Delete Ticket"), true);
-  service.getFreshTicket = originalFresh;
+    assert.equal(edited.length, 1);
+    const rendered = JSON.stringify(edited[0].components.map((component) => component.toJSON()));
+    assert.equal(rendered.includes("Ticket Closed"), true);
+    assert.equal(rendered.includes("Get Transcript"), true);
+    assert.equal(rendered.includes("Reopen"), true);
+    assert.equal(rendered.includes("Delete Ticket"), true);
+  } finally {
+    service.getFreshTicket = originalFresh;
+  }
 });
 
 test("stale close action on an already-closed ticket repairs the public control view", async () => {
@@ -349,12 +355,15 @@ test("control refresh falls back to editing the existing message when replacemen
     staff_roles: [],
   };
 
-  await service.refreshControlMessage(interaction, ticket, { replace: true });
+  try {
+    await service.refreshControlMessage(interaction, ticket, { replace: true });
 
-  assert.equal(edited.length, 1);
-  const rendered = JSON.stringify(edited[0].components.map((component) => component.toJSON()));
-  assert.match(rendered, /Get Transcript/);
-  assert.match(rendered, /Reopen/);
-  assert.match(rendered, /Delete Ticket/);
-  service.getFreshTicket = originalFresh;
+    assert.equal(edited.length, 1);
+    const rendered = JSON.stringify(edited[0].components.map((component) => component.toJSON()));
+    assert.match(rendered, /Get Transcript/);
+    assert.match(rendered, /Reopen/);
+    assert.match(rendered, /Delete Ticket/);
+  } finally {
+    service.getFreshTicket = originalFresh;
+  }
 });
