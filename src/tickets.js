@@ -60,6 +60,9 @@ export class TicketService {
   async getFreshTicket(interaction, ticket) {
     const latest = await getTicketById(interaction.guildId, ticket.id);
     if (!latest) throw new Error("This ticket no longer exists.");
+    if (interaction?.channelId && String(latest.channel_id) !== String(interaction.channelId)) {
+      throw new Error("This ticket is not available in the current channel.");
+    }
     return latest;
   }
 
