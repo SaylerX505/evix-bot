@@ -59,6 +59,15 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
     assert.equal(optionInsert.params[1], 4);
     assert.equal(optionInsert.params[5], "NOTHING");
     assert.equal(option.position, 4);
+    assert.equal(optionInsert.text.includes("transcript_on_close"), false);
+    assert.match(optionInsert.text, /\$19::jsonb\) RETURNING \*/);
+    assert.equal(optionInsert.params.length, 19);
+
+    const migration = queries[1].text;
+    assert.equal(migration.includes("transcript_on_close"), true);
+    assert.ok(migration.indexOf("DROP INDEX IF EXISTS tickets_one_active_dedupe_idx") < migration.indexOf("UPDATE tickets\n    SET status = 'open'"));
+    assert.ok(migration.indexOf("UPDATE tickets\n    SET status = 'open'") < migration.indexOf("CREATE UNIQUE INDEX IF NOT EXISTS tickets_one_active_dedupe_idx"));
+    assert.ok(migration.indexOf("UPDATE tickets\n    SET status = 'open'") < migration.indexOf("ALTER TABLE tickets ADD CONSTRAINT tickets_status_check"));
 
     optionCount = 25;
     await assert.rejects(
