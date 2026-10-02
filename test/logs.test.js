@@ -48,6 +48,19 @@ test("ticket audit logs only expose Open, Claimed, Closed, Deleted, and Transcri
   assert.equal(rendered.some((value) => value.includes("# Transcript")), true);
 });
 
+test("transcript audit log carries the generated transcript attachment", async () => {
+  const guild = makeGuild();
+  const files = [{ attachment: Buffer.from("<html>transcript</html>"), name: "evx-000008-transcript.html" }];
+
+  assert.equal(
+    await writeTicketLog(guild, ticket, "TRANSCRIPT_CREATED", "user", { messages: 12 }, files),
+    true,
+  );
+  assert.equal(guild.sent.length, 1);
+  assert.equal(guild.sent[0].files.length, 1);
+  assert.equal(guild.sent[0].files[0].name, "evx-000008-transcript.html");
+});
+
 test("transcript audit falls back to the ticket log channel", async () => {
   const guild = makeGuild();
   const transcriptOnlyTicket = {

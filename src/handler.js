@@ -214,11 +214,27 @@ export async function handleInteraction(interaction, { service, ui }) {
           return;
         }
 
-        await service.withTicketActionLock(ticket.id, () => service.delete(interaction, ticket));
+        const deletion = await service.withTicketActionLock(
+          ticket.id,
+          () => service.delete(interaction, ticket, { background: true }),
+        );
+        if (!deletion?.started) return;
+
         await interaction.followUp({
-          ...buildActionResult("Ticket Deleted", "This ticket has been permanently deleted."),
+          ...buildActionResult("Deleting Ticket", "The ticket has been marked for deletion. The channel is being removed now."),
           flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
         }).catch(() => null);
+
+        try {
+          await deletion.completion;
+        } catch (error) {
+          const normalized = normalizeError(error);
+          logInteractionError(interaction, normalized, error);
+          await interaction.followUp({
+            ...buildErrorResult(normalized),
+            flags: MessageFlags.Ephemeral,
+          }).catch(() => null);
+        }
       } catch (error) {
         const normalized = normalizeError(error);
         logInteractionError(interaction, normalized, error);

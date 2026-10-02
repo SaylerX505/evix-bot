@@ -38,6 +38,10 @@ async function respond(interaction, payload) {
 }
 function ephemeral(content) { return { content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } }; }
 function statusIsActive(status) { return status === "open"; }
+function isMissingDiscordChannelError(error) {
+  return String(error?.code || error?.rawError?.code || "") === "10003";
+}
+
 function statusName(status, ticketKey) { return status === "open" ? "ticket-" + ticketKey : status + "-" + ticketKey; }
 
 export class TicketService {
@@ -203,7 +207,7 @@ export class TicketService {
     return ticket;
   }
 
-  async refreshControlMessage(interaction, ticket, { closed = false, welcomeOverride = null, closedBy = null, replace = false, fallbackToKnownState = false } = {}) {
+  async refreshControlMessage(interaction, ticket, { closed = false, welcomeOverride = null, closedBy = null, replace = false, fallbackToKnownState = false, requireSuccess = false } = {}) {
     return queueTicketControlRefresh(ticket.id, async () => {
       let latest;
       try {
@@ -220,7 +224,10 @@ export class TicketService {
         ? buildClosedTicketView({ ...latest, closed_by: closedBy || latest.closed_by })
         : buildTicketView(latest, { welcome_message: welcomeOverride ?? latest.welcome_message ?? "Thanks for opening a ticket. A member of the team will be with you shortly." });
       const channel = await interaction.guild.channels.fetch(latest.channel_id).catch(() => null);
-      if (!channel?.isTextBased?.()) return latest;
+      if (!channel?.isTextBased?.()) {
+        if (requireSuccess) throw new Error("The ticket channel is no longer available for control refresh.");
+        return latest;
+      }
 
       const oldMessageId = latest.control_message_id;
       const message = oldMessageId ? await channel.messages.fetch(oldMessageId).catch(() => null) : null;
@@ -267,6 +274,7 @@ export class TicketService {
             console.error("[evix-ticket-control-fallback-edit-error]", fallbackError);
           }
         }
+        if (requireSuccess) throw error;
         return latest;
       }
     });
@@ -384,11 +392,17 @@ export class TicketService {
     if (!next) throw new Error("This ticket was already closed by another action.");
 
     try {
-      await this.setParticipantPermissions(interaction, next, {
-        view: false,
-        send: false,
-        rollbackTo: { view: true, send: true },
-      });
+      await this.refreshControlMessage(
+        interaction,
+        next,
+        {
+          closed: true,
+          closedBy: closedBy || interaction.user.id,
+          replace: true,
+          fallbackToKnownState: true,
+          requireSuccess: true,
+        },
+      );
     } catch (error) {
       await updateTicket(
         ticket.id,
@@ -401,6 +415,41 @@ export class TicketService {
         },
         { statuses: ["closed"] },
       ).catch(() => null);
+      throw new Error("Ticket close failed: " + (error?.message || "closed control update failed"));
+    }
+
+    try {
+      await this.setParticipantPermissions(interaction, next, {
+        view: false,
+        send: false,
+        rollbackTo: { view: true, send: true },
+      });
+    } catch (error) {
+      const reopened = await updateTicket(
+        ticket.id,
+        {
+          status: ticket.status,
+          closed_at: null,
+          closed_by: ticket.closed_by,
+          claimed_by: ticket.claimed_by,
+          claimed_at: ticket.claimed_at,
+        },
+        { statuses: ["closed"] },
+      ).catch(() => null);
+
+      if (reopened) {
+        await this.refreshControlMessage(
+          interaction,
+          reopened,
+          {
+            replace: true,
+            fallbackToKnownState: true,
+          },
+        ).catch((refreshError) => {
+          console.error("[evix-ticket-close-rollback-control-error]", refreshError);
+        });
+      }
+
       throw new Error("Ticket close failed: " + (error?.message || "permission update failed"));
     }
 
@@ -677,7 +726,40 @@ export class TicketService {
     return respond(interaction, buildDeleteConfirmation(ticket));
   }
 
-  async delete(interaction, ticket) {
+  async finalizeDelete(interaction, deleted, previousStatus) {
+    try {
+      await interaction.channel.delete("Evix ticket deleted");
+    } catch (error) {
+      if (!isMissingDiscordChannelError(error)) {
+        const restored = await updateTicket(
+          deleted.id,
+          { status: previousStatus, deleted_at: null },
+          { statuses: ["deleted"] },
+        ).catch(() => null);
+
+        if (restored) {
+          await this.refreshControlMessage(
+            interaction,
+            restored,
+            { replace: true, fallbackToKnownState: true },
+          ).catch((refreshError) => {
+            console.error("[evix-ticket-delete-rollback-control-error]", refreshError);
+          });
+        }
+
+        throw new Error("Ticket deletion failed: " + (error?.message || "channel deletion failed"));
+      }
+    }
+
+    void addTicketEvent(deleted.id, "TICKET_DELETED", interaction.user.id)
+      .catch((error) => console.error("[evix-ticket-delete-event-error]", error));
+    void writeTicketLog(interaction.guild, deleted, "TICKET_DELETED", interaction.user.id)
+      .catch((error) => console.error("[evix-ticket-delete-log-error]", error));
+
+    return deleted;
+  }
+
+  async delete(interaction, ticket, { background = false } = {}) {
     ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
     if (ticket.status === "deleted") return respond(interaction, buildActionResult("Ticket Deleted", "This ticket is already deleted."));
@@ -692,21 +774,13 @@ export class TicketService {
     );
     if (!deleted) throw new Error("This ticket was changed by another action.");
 
-    try {
-      await interaction.channel.delete("Evix ticket deleted");
-    } catch (error) {
-      await updateTicket(
-        ticket.id,
-        { status: previousStatus, deleted_at: null },
-        { statuses: ["deleted"] },
-      ).catch(() => null);
-      throw new Error("Ticket deletion failed: " + (error?.message || "channel deletion failed"));
+    const completion = this.finalizeDelete(interaction, deleted, previousStatus);
+    if (background) {
+      return { started: true, ticket: deleted, completion };
     }
 
-    void addTicketEvent(ticket.id, "TICKET_DELETED", interaction.user.id)
-      .catch((error) => console.error("[evix-ticket-delete-event-error]", error));
-    void writeTicketLog(interaction.guild, deleted, "TICKET_DELETED", interaction.user.id)
-      .catch((error) => console.error("[evix-ticket-delete-log-error]", error));
+    await completion;
+    return deleted;
   }
 
   async handleChannelDelete(channel) {
@@ -734,13 +808,32 @@ export class TicketService {
     if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
     const channel = await interaction.guild.channels.fetch(ticket.channel_id).catch(() => null);
     if (!channel?.isTextBased?.()) throw new Error("The ticket channel is no longer available.");
+
+    await respond(
+      interaction,
+      buildActionResult("Generating Transcript", "The transcript is being generated. Your file will appear here and in the configured transcript log."),
+    );
+
     const transcript = await buildTranscript(channel, ticket);
-    await respond(interaction, { ...buildActionResult("Transcript Ready", "Transcript generated for `" + ticket.ticket_key + "`."), files: [transcriptAttachment(transcript.buffer, transcript.fileName)], flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral });
+
+    await interaction.editReply({
+      ...buildActionResult("Transcript Ready", "Transcript generated for \`" + ticket.ticket_key + "\`."),
+      files: [{ attachment: transcript.buffer, name: transcript.fileName }],
+      flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+    });
+
     void addTicketEvent(ticket.id, "TRANSCRIPT_CREATED", interaction.user.id, {
       messages: transcript.messageCount,
       channel: interaction.channel.id,
     }).catch((error) => console.error("[evix-ticket-transcript-event-error]", error));
-    void writeTicketLog(interaction.guild, ticket, "TRANSCRIPT_CREATED", interaction.user.id, { messages: transcript.messageCount })
-      .catch((error) => console.error("[evix-ticket-transcript-log-error]", error));
+
+    void writeTicketLog(
+      interaction.guild,
+      ticket,
+      "TRANSCRIPT_CREATED",
+      interaction.user.id,
+      { messages: transcript.messageCount },
+      [{ attachment: transcript.buffer, name: transcript.fileName }],
+    ).catch((error) => console.error("[evix-ticket-transcript-log-error]", error));
   }
 }
