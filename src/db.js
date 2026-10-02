@@ -24,6 +24,7 @@ export {
   updatePanelOption,
 } from "./db/panels.js";
 export {
+  allocateTicketId,
   createTicket,
   getCachedTicketByChannel,
   getOpenTicketForUser,
