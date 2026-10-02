@@ -76,7 +76,7 @@ Panel options support:
 - `CREATE_TICKET`
 - `NOTHING`
 
-`NOTHING` is useful for a reset/no-op dropdown entry. `CREATE_TICKET` creates a private channel with the option's configured category, staff roles, ping roles, naming template, welcome message, forms, transcript behavior, and close behavior.
+`NOTHING` is useful for a reset/no-op dropdown entry. `CREATE_TICKET` creates a private channel with the option's configured category, staff roles, ping roles, naming template, welcome message, and close behavior. Existing stored modal fields remain supported for backward compatibility.
 
 The database is PostgreSQL and startup schema creation is additive/idempotent. Existing ticket data is never dropped by startup.
 
