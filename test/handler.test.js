@@ -38,6 +38,7 @@ function serviceFor(ticket) {
   return {
     calls,
     getTicket: async () => ticket,
+    getFreshTicket: async () => ticket,
     canManageTicket: () => false,
     canClose: (member, current) => member.id === current.owner_id,
     withTicketActionLock: async (_ticketId, callback) => callback(),
@@ -73,10 +74,10 @@ test("confirm close surfaces a failure after removing the confirmation", async (
 
 function delayedService(ticket) {
   const service = serviceFor(ticket);
-  const originalGet = service.getTicket;
-  service.getTicket = async (...args) => {
+  const originalFresh = service.getFreshTicket;
+  service.getFreshTicket = async (...args) => {
     await new Promise((resolve) => setTimeout(resolve, 20));
-    return originalGet(...args);
+    return originalFresh(...args);
   };
   service.withTicketActionLock = async (_ticketId, callback) => callback();
   service.requestClose = async (interaction) => { await interaction.editReply({ ok: "close-confirmation" }); };
