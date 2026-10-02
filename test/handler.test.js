@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { MessageFlags } from "discord.js";
+import { withTicketActionLock } from "../src/db.js";
 import { handleInteraction } from "../src/handler.js";
 
 function makeButton(customId) {
@@ -142,6 +143,7 @@ test("concurrent delete confirmations are serialized instead of returning ticket
     staff_roles: [],
   });
   service.canManageTicket = () => true;
+  service.withTicketActionLock = withTicketActionLock;
 
   let running = 0;
   let maxRunning = 0;
