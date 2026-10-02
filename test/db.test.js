@@ -17,6 +17,7 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
 
   try {
     await initDatabase("postgres://evix:test@localhost/evix");
+    const migrationSql = queries[1].text;
     queries.length = 0;
 
     await updatePanel(1, { title: "New", accent_color: 123 });
@@ -63,7 +64,7 @@ test("database update builders emit valid PostgreSQL placeholders", async () => 
     assert.match(optionInsert.text, /\$19::jsonb\) RETURNING \*/);
     assert.equal(optionInsert.params.length, 19);
 
-    const migration = queries[1].text;
+    const migration = migrationSql;
     assert.equal(migration.includes("transcript_on_close"), true);
     assert.ok(migration.indexOf("DROP INDEX IF EXISTS tickets_one_active_dedupe_idx") < migration.indexOf("UPDATE tickets\n    SET status = 'open'"));
     assert.ok(migration.indexOf("UPDATE tickets\n    SET status = 'open'") < migration.indexOf("CREATE UNIQUE INDEX IF NOT EXISTS tickets_one_active_dedupe_idx"));
