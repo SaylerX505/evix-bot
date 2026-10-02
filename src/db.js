@@ -26,7 +26,6 @@ export {
 export {
   allocateTicketId,
   createTicket,
-  getCachedTicketByChannel,
   getOpenTicketForUser,
   getTicketByChannel,
   getTicketById,
