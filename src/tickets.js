@@ -779,13 +779,33 @@ export class TicketService {
     if (ticket.status === "deleted") throw new Error("This ticket has been deleted.");
     const channel = await interaction.guild.channels.fetch(ticket.channel_id).catch(() => null);
     if (!channel?.isTextBased?.()) throw new Error("The ticket channel is no longer available.");
+
+    await respond(
+      interaction,
+      buildActionResult("Generating Transcript", "The transcript is being generated. Your file will appear here and in the configured transcript log."),
+    );
+
     const transcript = await buildTranscript(channel, ticket);
-    await respond(interaction, { ...buildActionResult("Transcript Ready", "Transcript generated for `" + ticket.ticket_key + "`."), files: [transcriptAttachment(transcript.buffer, transcript.fileName)], flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral });
+
+    await interaction.editReply({
+      ...buildActionResult("Transcript Ready", "Transcript generated for \`" + ticket.ticket_key + "\`."),
+      files: [transcriptAttachment(transcript.buffer, transcript.fileName)],
+      flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+    });
+
     void addTicketEvent(ticket.id, "TRANSCRIPT_CREATED", interaction.user.id, {
       messages: transcript.messageCount,
       channel: interaction.channel.id,
     }).catch((error) => console.error("[evix-ticket-transcript-event-error]", error));
-    void writeTicketLog(interaction.guild, ticket, "TRANSCRIPT_CREATED", interaction.user.id, { messages: transcript.messageCount })
-      .catch((error) => console.error("[evix-ticket-transcript-log-error]", error));
+
+    void writeTicketLog(
+      interaction.guild,
+      ticket,
+      "TRANSCRIPT_CREATED",
+      interaction.user.id,
+      { messages: transcript.messageCount },
+      [transcriptAttachment(transcript.buffer, transcript.fileName)],
+    ).catch((error) => console.error("[evix-ticket-transcript-log-error]", error));
+  }
   }
 }
