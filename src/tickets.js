@@ -4,7 +4,7 @@ import { writeTicketLog } from "./logs.js";
 import { buildActionResult, buildClaimResult, buildClosedTicketView, buildDeleteConfirmation, buildInfoView, buildTicketView, buildCloseConfirmation } from "./ui.js";
 import { buildTranscript, transcriptAttachment } from "./transcript.js";
 import { transitionTicket } from "./state.js";
-import { categoryCandidates, findTicketCreationCategory, moveTicketChannel } from "./routing.js";
+import { categoryCandidates, findTicketCreationCategory, findTicketReopenCategory, moveTicketChannel } from "./routing.js";
 import { formatDuration, isStaff, renderTemplate, sanitizeChannelName, unique } from "./utils.js";
 
 const BOT_PERMISSIONS = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels];
@@ -452,7 +452,7 @@ export class TicketService {
     let permissions;
     const [routingResult, permissionsResult] = await Promise.allSettled([
       (async () => {
-        const result = await this.findCategoryForCreate(interaction.guild, candidates);
+        const result = await findTicketReopenCategory(interaction.guild, candidates, previousCategoryId);
         await moveTicketChannel(interaction.channel, result.category.id);
         return result;
       })(),
