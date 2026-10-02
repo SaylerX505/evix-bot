@@ -100,6 +100,37 @@ function makeTicketButton(customId) {
   return interaction;
 }
 
+test("ticket control defers with Components V2 from the start", async () => {
+  const interaction = makeTicketButton("evix:t:42:claim");
+  const service = delayedService({
+    id: 42,
+    owner_id: "different",
+    status: "open",
+    staff_roles: [],
+  });
+  service.canManageTicket = () => true;
+
+  await handleInteraction(interaction, { service, ui: {} });
+  assert.equal(interaction.flags & MessageFlags.IsComponentsV2, MessageFlags.IsComponentsV2);
+});
+
+test("ticket control handler does not perform a duplicate initial ticket lookup", async () => {
+  const interaction = makeTicketButton("evix:t:42:claim");
+  const service = delayedService({
+    id: 42,
+    owner_id: "different",
+    status: "open",
+    staff_roles: [],
+  });
+  service.getTicket = async () => {
+    throw new Error("duplicate lookup should not happen");
+  };
+  service.canManageTicket = () => true;
+
+  await assert.doesNotReject(() => handleInteraction(interaction, { service, ui: {} }));
+  assert.equal(service.calls.includes("claim"), true);
+});
+
 test("ticket control buttons acknowledge before slow work", async () => {
   const actions = ["claim", "unclaim", "close", "reopen", "transcript", "delete", "info"];
   for (const action of actions) {
