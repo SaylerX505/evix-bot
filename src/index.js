@@ -24,6 +24,12 @@ async function main() {
     void handleInteraction(interaction, { service, ui });
   });
 
+  client.on("channelDelete", (channel) => {
+    void service.handleChannelDelete(channel).catch((error) => {
+      console.error("[evix-channel-delete-reconcile-error]", error);
+    });
+  });
+
   client.on("error", (error) => console.error("[evix-discord-error]", error));
   process.on("unhandledRejection", (reason) => console.error("[evix-unhandled-rejection]", reason));
   process.on("uncaughtException", (error) => console.error("[evix-uncaught-exception]", error));
