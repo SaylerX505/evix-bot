@@ -7,6 +7,7 @@ test("guild settings patch is a single atomic database write", async () => {
   const calls = [];
   const originalQuery = pg.Pool.prototype.query;
   const originalEnd = pg.Pool.prototype.end;
+  const originalConnect = pg.Pool.prototype.connect;
 
   pg.Pool.prototype.query = async function(text, params) {
     calls.push({ text, params });
@@ -56,6 +57,7 @@ test("guild settings patch is a single atomic database write", async () => {
   } finally {
     pg.Pool.prototype.query = originalQuery;
     pg.Pool.prototype.end = originalEnd;
+    pg.Pool.prototype.connect = originalConnect;
     await closeDatabase();
   }
 });
@@ -88,6 +90,7 @@ test("ticket event listing uses a deterministic tie-breaker", async () => {
   } finally {
     pg.Pool.prototype.query = originalQuery;
     pg.Pool.prototype.end = originalEnd;
+    pg.Pool.prototype.connect = originalConnect;
     await closeDatabase();
   }
 });
