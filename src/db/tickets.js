@@ -81,7 +81,6 @@ export async function createTicket(data) {
         data.guildId,
         data.panelId,
         data.optionId,
-        data.id != null ? "EVX-" + String(data.id).padStart(6, "0") : null,
         data.channelId,
         data.ownerId,
         data.typeLabel,
