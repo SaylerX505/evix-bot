@@ -833,7 +833,7 @@ export class TicketService {
       "TRANSCRIPT_CREATED",
       interaction.user.id,
       { messages: transcript.messageCount },
-      [transcriptAttachment(transcript.buffer, transcript.fileName)],
+      [{ attachment: transcript.buffer, name: transcript.fileName }],
     ).catch((error) => console.error("[evix-ticket-transcript-log-error]", error));
   }
 }
