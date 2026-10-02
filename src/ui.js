@@ -200,6 +200,20 @@ export function buildAdminEmbed(title, description, color = DEFAULT_ACCENT) {
   };
 }
 
+export function buildV2ErrorResult(error) {
+  return v2Message([
+    containerWithText(
+      "Evix Error",
+      [
+        String(error?.message || "Something went wrong."),
+        "",
+        "-# Code: " + String(error?.code || "EVIX_ERROR") + " · Reference: " + String(error?.reference || "unknown"),
+      ],
+      0xed4245,
+    ),
+  ]);
+}
+
 export function buildErrorResult(error) {
   const description = [String(error?.message || "Something went wrong."), "", "-# Code: " + String(error?.code || "EVIX_ERROR") + " · Reference: " + String(error?.reference || "unknown")].join("\n");
   return buildAdminEmbed("Evix Error", description, 0xed4245);
