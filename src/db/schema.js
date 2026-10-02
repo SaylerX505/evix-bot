@@ -281,9 +281,176 @@ const MIGRATIONS = [
 
         UPDATE tickets
         SET ticket_key = CASE
-              WHEN ticket_key IS DISTINCT FROM ('EVX-' || LPAD(id::text, 6, '0'))
-                THEN 'EVX-' || LPAD(id::text, 6, '0')
-              ELSE ticket_key
+              WHEN ticket_key ~ '^EVX-[0-9]{6,}
+            status = CASE
+              WHEN status IN ('open', 'closed', 'deleted') THEN status
+              WHEN status IN ('waiting', 'locked') THEN 'open'
+              ELSE 'open'
+            END,
+            ticket_logs_enabled = COALESCE(ticket_logs_enabled, TRUE),
+            moderation_logs_enabled = COALESCE(moderation_logs_enabled, TRUE),
+            transcript_logs_enabled = COALESCE(transcript_logs_enabled, TRUE),
+            staff_roles = COALESCE(staff_roles, '[]'::jsonb),
+            ping_roles = COALESCE(ping_roles, '[]'::jsonb),
+            welcome_message = COALESCE(welcome_message, 'Thanks for opening a ticket. A member of the team will be with you shortly.'),
+            close_behavior = CASE WHEN close_behavior IN ('move', 'stay') THEN close_behavior ELSE 'move' END,
+            created_at = COALESCE(created_at, NOW());
+
+        ALTER TABLE guild_ticket_settings DROP COLUMN IF EXISTS open_category_id;
+        ALTER TABLE guild_ticket_settings DROP COLUMN IF EXISTS log_channel_id;
+        ALTER TABLE guild_ticket_settings DROP COLUMN IF EXISTS transcript_channel_id;
+        ALTER TABLE guild_ticket_settings DROP COLUMN IF EXISTS waiting_category_id;
+
+        ALTER TABLE tickets DROP COLUMN IF EXISTS log_channel_id;
+        ALTER TABLE tickets DROP COLUMN IF EXISTS transcript_channel_id;
+        ALTER TABLE tickets DROP COLUMN IF EXISTS waiting_at;
+
+        ALTER TABLE ticket_panel_options DROP COLUMN IF EXISTS transcript_on_close;
+        ALTER TABLE tickets DROP COLUMN IF EXISTS transcript_on_close;
+
+        ALTER TABLE guild_ticket_settings ALTER COLUMN ticket_logs_enabled SET DEFAULT TRUE;
+        ALTER TABLE guild_ticket_settings ALTER COLUMN moderation_logs_enabled SET DEFAULT TRUE;
+        ALTER TABLE guild_ticket_settings ALTER COLUMN transcript_logs_enabled SET DEFAULT TRUE;
+        ALTER TABLE guild_ticket_settings ALTER COLUMN default_ticket_limit SET DEFAULT 1;
+
+        ALTER TABLE tickets ALTER COLUMN ticket_logs_enabled SET DEFAULT TRUE;
+        ALTER TABLE tickets ALTER COLUMN moderation_logs_enabled SET DEFAULT TRUE;
+        ALTER TABLE tickets ALTER COLUMN transcript_logs_enabled SET DEFAULT TRUE;
+        ALTER TABLE tickets ALTER COLUMN close_behavior SET DEFAULT 'move';
+
+        ALTER TABLE tickets DROP CONSTRAINT IF EXISTS tickets_status_check;
+        ALTER TABLE tickets ADD CONSTRAINT tickets_status_check
+          CHECK (status IN ('open', 'closed', 'deleted'));
+
+        ALTER TABLE tickets DROP CONSTRAINT IF EXISTS tickets_close_behavior_check;
+        ALTER TABLE tickets ADD CONSTRAINT tickets_close_behavior_check
+          CHECK (close_behavior IN ('move', 'stay'));
+
+        ALTER TABLE ticket_panels DROP CONSTRAINT IF EXISTS ticket_panels_component_mode_check;
+        ALTER TABLE ticket_panels ADD CONSTRAINT ticket_panels_component_mode_check
+          CHECK (component_mode = 'dropdown');
+
+        ALTER TABLE ticket_panel_options DROP CONSTRAINT IF EXISTS ticket_panel_options_component_kind_check;
+        ALTER TABLE ticket_panel_options ADD CONSTRAINT ticket_panel_options_component_kind_check
+          CHECK (component_kind = 'dropdown');
+
+        ALTER TABLE ticket_panel_options DROP CONSTRAINT IF EXISTS ticket_panel_options_action_check;
+        ALTER TABLE ticket_panel_options ADD CONSTRAINT ticket_panel_options_action_check
+          CHECK (action IN ('CREATE_TICKET', 'NOTHING'));
+
+        ALTER TABLE ticket_panel_options DROP CONSTRAINT IF EXISTS ticket_panel_options_close_behavior_check;
+        ALTER TABLE ticket_panel_options ADD CONSTRAINT ticket_panel_options_close_behavior_check
+          CHECK (close_behavior IN ('move', 'stay'));
+
+        ALTER TABLE ticket_panel_options DROP CONSTRAINT IF EXISTS ticket_panel_options_button_style_check;
+        ALTER TABLE ticket_panel_options ADD CONSTRAINT ticket_panel_options_button_style_check
+          CHECK (button_style BETWEEN 1 AND 4);
+
+        ALTER TABLE guild_ticket_settings DROP CONSTRAINT IF EXISTS guild_ticket_settings_limit_check;
+        ALTER TABLE guild_ticket_settings ADD CONSTRAINT guild_ticket_settings_limit_check
+          CHECK (default_ticket_limit BETWEEN 1 AND 25);
+
+        ALTER TABLE guild_ticket_settings ALTER COLUMN ticket_logs_enabled SET NOT NULL;
+        ALTER TABLE guild_ticket_settings ALTER COLUMN moderation_logs_enabled SET NOT NULL;
+        ALTER TABLE guild_ticket_settings ALTER COLUMN transcript_logs_enabled SET NOT NULL;
+        ALTER TABLE guild_ticket_settings ALTER COLUMN default_ticket_limit SET NOT NULL;
+
+        ALTER TABLE tickets ALTER COLUMN ticket_logs_enabled SET NOT NULL;
+        ALTER TABLE tickets ALTER COLUMN moderation_logs_enabled SET NOT NULL;
+        ALTER TABLE tickets ALTER COLUMN transcript_logs_enabled SET NOT NULL;
+        ALTER TABLE tickets ALTER COLUMN close_behavior SET NOT NULL;
+      `);
+    },
+  },
+  {
+    version: 3,
+    name: "workload-indexes",
+    transactional: false,
+    async run(client) {
+      await client.query("DROP INDEX CONCURRENTLY IF EXISTS tickets_one_active_per_type");
+
+      await client.query(`
+        CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS tickets_one_active_dedupe_idx
+          ON tickets (guild_id, owner_id, option_id, dedupe_key)
+          WHERE status = 'open' AND dedupe_key IS NOT NULL
+      `);
+      await client.query(`
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS tickets_open_owner_option_idx
+          ON tickets (guild_id, owner_id, option_id, created_at DESC)
+          WHERE status = 'open'
+      `);
+      await client.query(`
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS panels_guild_id_idx
+          ON ticket_panels (guild_id, id)
+      `);
+      await client.query(`
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS panel_options_panel_idx
+          ON ticket_panel_options (panel_id)
+      `);
+      await client.query(`
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS ticket_events_ticket_created_id_idx
+          ON ticket_events (ticket_id, created_at, id)
+      `);
+
+      await client.query("DROP INDEX CONCURRENTLY IF EXISTS tickets_owner_idx");
+      await client.query("DROP INDEX CONCURRENTLY IF EXISTS tickets_guild_status_idx");
+      await client.query("DROP INDEX CONCURRENTLY IF EXISTS panels_guild_idx");
+      await client.query("DROP INDEX CONCURRENTLY IF EXISTS ticket_members_ticket_idx");
+      await client.query("DROP INDEX CONCURRENTLY IF EXISTS ticket_events_ticket_idx");
+    },
+  },
+];
+
+async function ensureMigrationTable(client) {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+}
+
+export async function runMigrations(pool) {
+  const client = await pool.connect();
+  try {
+    await client.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [SCHEMA_LOCK_KEY]);
+    await ensureMigrationTable(client);
+
+    const { rows } = await client.query("SELECT version FROM schema_migrations ORDER BY version");
+    const applied = new Set(rows.map((row) => Number(row.version)));
+
+    for (const migration of MIGRATIONS) {
+      if (applied.has(migration.version)) continue;
+
+      if (migration.transactional) {
+        await client.query("BEGIN");
+        try {
+          await migration.run(client);
+          await client.query(
+            "INSERT INTO schema_migrations(version,name) VALUES($1,$2)",
+            [migration.version, migration.name],
+          );
+          await client.query("COMMIT");
+        } catch (error) {
+          await client.query("ROLLBACK").catch(() => null);
+          throw error;
+        }
+      } else {
+        await migration.run(client);
+        await client.query(
+          "INSERT INTO schema_migrations(version,name) VALUES($1,$2)",
+          [migration.version, migration.name],
+        );
+      }
+    }
+  } finally {
+    await client.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [SCHEMA_LOCK_KEY]).catch(() => null);
+    client.release();
+  }
+}
+ THEN ticket_key
+              ELSE 'EVX-' || LPAD(id::text, 6, '0')
             END,
             status = CASE
               WHEN status IN ('open', 'closed', 'deleted') THEN status
