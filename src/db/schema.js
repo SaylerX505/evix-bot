@@ -6,7 +6,7 @@ const MIGRATIONS = [
     name: "baseline",
     transactional: true,
     async run(client) {
-      await client.query(\`
+      await client.query(`
         CREATE TABLE IF NOT EXISTS guild_ticket_settings (
           guild_id TEXT PRIMARY KEY,
           open_category_id TEXT,
@@ -197,7 +197,7 @@ const MIGRATIONS = [
           ADD COLUMN IF NOT EXISTS transcript_logs_enabled BOOLEAN NOT NULL DEFAULT TRUE;
         ALTER TABLE tickets
           ADD COLUMN IF NOT EXISTS close_behavior TEXT NOT NULL DEFAULT 'move';
-      \`);
+      `);
     },
   },
   {
@@ -205,7 +205,7 @@ const MIGRATIONS = [
     name: "normalize-and-cleanup",
     transactional: true,
     async run(client) {
-      await client.query(\`
+      await client.query(`
         ALTER TABLE guild_ticket_settings
           ADD COLUMN IF NOT EXISTS open_category_id TEXT;
         ALTER TABLE guild_ticket_settings
@@ -415,7 +415,7 @@ const MIGRATIONS = [
           ALTER COLUMN transcript_logs_enabled SET NOT NULL;
         ALTER TABLE tickets
           ALTER COLUMN close_behavior SET NOT NULL;
-      \`);
+      `);
     },
   },
   {
@@ -425,32 +425,32 @@ const MIGRATIONS = [
     async run(client) {
       await client.query("DROP INDEX CONCURRENTLY IF EXISTS tickets_one_active_per_type");
 
-      await client.query(\`
+      await client.query(`
         CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS tickets_one_active_dedupe_idx
           ON tickets (guild_id, owner_id, option_id, dedupe_key)
           WHERE status = 'open' AND dedupe_key IS NOT NULL
-      \`);
+      `);
 
-      await client.query(\`
+      await client.query(`
         CREATE INDEX CONCURRENTLY IF NOT EXISTS tickets_open_owner_option_created_id_idx
           ON tickets (guild_id, owner_id, option_id, created_at DESC, id DESC)
           WHERE status = 'open'
-      \`);
+      `);
 
-      await client.query(\`
+      await client.query(`
         CREATE INDEX CONCURRENTLY IF NOT EXISTS panels_guild_id_idx
           ON ticket_panels (guild_id, id)
-      \`);
+      `);
 
-      await client.query(\`
+      await client.query(`
         CREATE INDEX CONCURRENTLY IF NOT EXISTS panel_options_panel_position_idx
           ON ticket_panel_options (panel_id, position, id)
-      \`);
+      `);
 
-      await client.query(\`
+      await client.query(`
         CREATE INDEX CONCURRENTLY IF NOT EXISTS ticket_events_ticket_created_id_idx
           ON ticket_events (ticket_id, created_at, id)
-      \`);
+      `);
 
       await client.query("DROP INDEX CONCURRENTLY IF EXISTS tickets_open_owner_option_idx");
       await client.query("DROP INDEX CONCURRENTLY IF EXISTS tickets_owner_idx");
@@ -464,13 +464,13 @@ const MIGRATIONS = [
 ];
 
 async function ensureMigrationTable(client) {
-  await client.query(\`
+  await client.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version INTEGER PRIMARY KEY,
       name TEXT NOT NULL,
       applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
-  \`);
+  `);
 }
 
 export async function runMigrations(pool) {
