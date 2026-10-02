@@ -395,7 +395,9 @@ export class TicketService {
       }
     }
 
-    await interaction.channel.setName(statusName("closed", next.ticket_key)).catch(() => null);
+    void interaction.channel.setName(statusName("closed", next.ticket_key)).catch((error) => {
+      console.error("[evix-close-channel-rename-error]", error);
+    });
 
     if (reply) {
       await respond(interaction, buildActionResult(
@@ -446,7 +448,7 @@ export class TicketService {
       ticket.category_id || settings.ticket_category_id || settings.open_category_id,
       settings.backup_category_id,
     );
-    const previousCategoryId = ticket.current_category_id || interaction.channel.parentId || null;
+    const previousCategoryId = interaction.channel.parentId || ticket.current_category_id || ticket.category_id || null;
 
     let target;
     let permissions;
