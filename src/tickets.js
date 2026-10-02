@@ -361,6 +361,9 @@ export class TicketService {
     if (!this.canClose(interaction.member, ticket)) throw new Error("Only the ticket owner or configured staff can close this ticket.");
     if (ticket.status === "closed") {
       await this.refreshControlMessage(interaction, ticket, { closed: true, closedBy: ticket.closed_by, fallbackToKnownState: true });
+      if (background) {
+        return { started: false, alreadyClosed: true, ticket };
+      }
       if (reply) {
         await respond(interaction, buildActionResult("Ticket Already Closed", "This ticket is already closed. Use the controls on the closed ticket message."));
       }
@@ -711,7 +714,10 @@ export class TicketService {
   async requestDelete(interaction, ticket) {
     ticket = await this.getFreshTicket(interaction, ticket);
     this.assertStaff(interaction.member, ticket);
-    if (ticket.status === "deleted") return respond(interaction, buildActionResult("Ticket Deleted", "This ticket is already deleted."));
+    if (ticket.status === "deleted") {
+      if (background) return { started: false, alreadyDeleted: true, ticket };
+      return respond(interaction, buildActionResult("Ticket Deleted", "This ticket is already deleted."));
+    }
     return respond(interaction, buildDeleteConfirmation(ticket));
   }
 
