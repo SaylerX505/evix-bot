@@ -60,8 +60,7 @@ export async function upsertGuildSettings(guildId, patch) {
   );
 
   const saved = rows[0] ?? null;
-  if (saved) SETTINGS_CACHE.set(guildId, saved);
-  else SETTINGS_CACHE.invalidate(guildId);
+  SETTINGS_CACHE.invalidate(guildId);
   return saved;
 }
 
