@@ -211,27 +211,54 @@ export class TicketService {
     return ticket;
   }
 
-  async refreshControlMessage(interaction, ticket, { closed = false, welcomeOverride = null, closedBy = null, replace = false, fallbackToKnownState = false } = {}) {
+  async refreshControlMessage(
+    interaction,
+    ticket,
+    {
+      closed = false,
+      welcomeOverride = null,
+      closedBy = null,
+      replace = false,
+      fallbackToKnownState = false,
+      requireSuccess = false,
+      ticketIsFresh = false,
+    } = {},
+  ) {
     return queueTicketControlRefresh(ticket.id, async () => {
       let latest;
-      try {
-        latest = await this.getFreshTicket(interaction, ticket);
-      } catch (error) {
-        if (!fallbackToKnownState) throw error;
-        console.error("[evix-ticket-control-fresh-read-fallback]", error);
+      if (ticketIsFresh) {
         latest = ticket;
+      } else {
+        try {
+          latest = await this.getFreshTicket(interaction, ticket);
+        } catch (error) {
+          if (!fallbackToKnownState) throw error;
+          console.error("[evix-ticket-control-fresh-read-fallback]", error);
+          latest = ticket;
+        }
       }
+
       if (latest.status === "deleted") return latest;
 
       const renderClosed = latest.status === "closed";
       const payload = renderClosed
         ? buildClosedTicketView({ ...latest, closed_by: closedBy || latest.closed_by })
-        : buildTicketView(latest, { welcome_message: welcomeOverride ?? latest.welcome_message ?? "Thanks for opening a ticket. A member of the team will be with you shortly." });
+        : buildTicketView(latest, {
+            welcome_message: welcomeOverride
+              ?? latest.welcome_message
+              ?? "Thanks for opening a ticket. A member of the team will be with you shortly.",
+          });
+
       const channel = await interaction.guild.channels.fetch(latest.channel_id).catch(() => null);
-      if (!channel?.isTextBased?.()) return latest;
+      if (!channel?.isTextBased?.()) {
+        if (requireSuccess) throw new Error("The ticket control channel is no longer available.");
+        return latest;
+      }
 
       const oldMessageId = latest.control_message_id;
-      const message = oldMessageId ? await channel.messages.fetch(oldMessageId).catch(() => null) : null;
+      const message = oldMessageId
+        ? await channel.messages.fetch(oldMessageId).catch(() => null)
+        : null;
 
       if (message && !replace) {
         try {
@@ -264,7 +291,6 @@ export class TicketService {
       } catch (error) {
         console.error("[evix-ticket-control-send-error]", error);
 
-        // Never leave a stale public control view when the replacement path fails.
         if (message) {
           try {
             await message.edit(payload);
@@ -273,10 +299,14 @@ export class TicketService {
             console.error("[evix-ticket-control-fallback-edit-error]", fallbackError);
           }
         }
+
+        if (requireSuccess) throw error;
         return latest;
       }
     });
   }
+
+
   async setParticipantPermissions(interaction, ticket, { view = true, send = true, rollbackTo = { view: true, send: true }, bestEffort = false } = {}) {
     const memberIds = unique([ticket.owner_id, ...(await listTicketMembers(ticket.id))]);
     const results = await Promise.all(memberIds.map(async (userId) => {
