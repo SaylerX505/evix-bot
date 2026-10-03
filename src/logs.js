@@ -16,9 +16,9 @@ function routeFor(eventType) {
 
 function channelCandidates(ticket, route) {
   if (route === "transcript") {
-    const candidates = [ticket.transcript_log_channel_id, ticket.transcript_channel_id];
+    const candidates = [ticket.transcript_log_channel_id];
     if (ticket.ticket_logs_enabled !== false) {
-      candidates.push(ticket.ticket_log_channel_id, ticket.log_channel_id);
+      candidates.push(ticket.ticket_log_channel_id);
     }
     return candidates;
   }
@@ -29,7 +29,7 @@ function channelCandidates(ticket, route) {
     }
     return candidates;
   }
-  return [ticket.ticket_log_channel_id, ticket.log_channel_id];
+  return [ticket.ticket_log_channel_id];
 }
 
 function valueText(value) {
